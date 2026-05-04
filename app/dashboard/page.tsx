@@ -12,8 +12,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
+  const [driveLoading, setDriveLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailMsg, setEmailMsg] = useState('');
+  const [driveResult, setDriveResult] = useState<{ url: string; folder: string } | null>(null);
 
   const isPhone = (q: string) => /^\d{10}$/.test(q.trim());
 
@@ -24,6 +26,7 @@ export default function DashboardPage() {
     setInvoiceData(null);
     setMultipleResults([]);
     setEmailMsg('');
+    setDriveResult(null);
 
     const res = await fetch(`/api/invoice?query=${encodeURIComponent(query.trim())}`);
     setLoading(false);
@@ -47,6 +50,7 @@ export default function DashboardPage() {
     setLoading(true);
     setError('');
     setEmailMsg('');
+    setDriveResult(null);
     const res = await fetch(`/api/invoice?query=${encodeURIComponent(invoiceNumber)}`);
     setLoading(false);
     if (!res.ok) { setError('Failed to load invoice'); return; }
@@ -91,6 +95,22 @@ export default function DashboardPage() {
     setEmailMsg(d.message);
   }
 
+  async function handleUploadToDrive() {
+    if (!invoiceData) return;
+    setDriveLoading(true);
+    setDriveResult(null);
+    setError('');
+    const res = await fetch('/api/upload-drive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invoiceData),
+    });
+    setDriveLoading(false);
+    const d = await res.json();
+    if (!res.ok) { setError(d.error || 'Drive upload failed'); return; }
+    setDriveResult({ url: d.fileUrl, folder: d.folder });
+  }
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/');
@@ -101,6 +121,7 @@ export default function DashboardPage() {
     setMultipleResults([]);
     setError('');
     setEmailMsg('');
+    setDriveResult(null);
   }
 
   return (
@@ -125,7 +146,9 @@ export default function DashboardPage() {
         {/* Search Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <h2 className="text-base font-semibold text-gray-700 mb-1">Search Invoice</h2>
-          <p className="text-xs text-gray-400 mb-4">Enter an Invoice Number <span className="font-mono bg-gray-100 px-1 rounded">MHS/DD/033</span> or a 10-digit Mobile Number</p>
+          <p className="text-xs text-gray-400 mb-4">
+            Enter an Invoice Number <span className="font-mono bg-gray-100 px-1 rounded">MHS/DD/033</span> or a 10-digit Mobile Number
+          </p>
           <form onSubmit={handleSearch} className="flex gap-3">
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
@@ -145,20 +168,33 @@ export default function DashboardPage() {
               disabled={loading}
               className="bg-gradient-to-r from-purple-600 to-pink-500 text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-60 whitespace-nowrap"
             >
-              {loading ? (
-                <span className="flex items-center gap-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Searching…</span>
-              ) : 'Get Invoice'}
+              {loading
+                ? <span className="flex items-center gap-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Searching…</span>
+                : 'Get Invoice'}
             </button>
           </form>
 
           {error && (
-            <div className="mt-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2.5 flex items-center gap-2">
+            <div className="mt-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2.5">
               ❌ {error}
             </div>
           )}
           {emailMsg && (
-            <div className="mt-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2.5 flex items-center gap-2">
+            <div className="mt-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2.5">
               ✅ {emailMsg}
+            </div>
+          )}
+          {driveResult && (
+            <div className="mt-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-lg px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+              <span>☁️ Uploaded to <strong>L2 {driveResult.folder}</strong> folder &amp; URL saved to tracking sheet</span>
+              <a
+                href={driveResult.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-semibold hover:text-blue-900 text-xs truncate max-w-xs"
+              >
+                Open in Drive →
+              </a>
             </div>
           )}
         </div>
@@ -169,7 +205,9 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-700">Multiple Invoices Found</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{multipleResults.length} invoice(s) for mobile {query} — click <strong>View</strong> to open one</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {multipleResults.length} invoice(s) for mobile {query} — click <strong>View</strong> to open one
+                </p>
               </div>
               <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1 rounded-full">
                 {multipleResults.length} Records
@@ -220,7 +258,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
               <div className="flex items-center gap-3">
-                {multipleResults.length === 0 ? null : (
+                {multipleResults.length > 0 && (
                   <button
                     onClick={() => setInvoiceData(null)}
                     className="text-sm text-gray-400 hover:text-purple-600 transition"
@@ -232,7 +270,24 @@ export default function DashboardPage() {
                   Invoice Preview — <span className="font-mono text-purple-600">{invoiceData.invoiceNumber}</span>
                 </h2>
               </div>
-              <div className="flex gap-3">
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 flex-wrap justify-end">
+                {/* Upload to Drive */}
+                <button
+                  onClick={handleUploadToDrive}
+                  disabled={driveLoading}
+                  className="flex items-center gap-2 border border-blue-400 text-blue-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition disabled:opacity-50"
+                >
+                  {driveLoading
+                    ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full" /> Uploading…</>
+                    : driveResult
+                      ? <>☁️ Uploaded to {driveResult.folder}</>
+                      : <>☁️ Upload to Drive</>
+                  }
+                </button>
+
+                {/* Send Email */}
                 <button
                   onClick={handleSendEmail}
                   disabled={emailLoading || !invoiceData.email}
@@ -244,6 +299,8 @@ export default function DashboardPage() {
                     : <>✉️ {invoiceData.email ? `Send to ${invoiceData.email}` : 'No email'}</>
                   }
                 </button>
+
+                {/* Download PDF */}
                 <button
                   onClick={handleDownload}
                   disabled={pdfLoading}
@@ -256,6 +313,7 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
+
             <InvoicePreview data={invoiceData} />
           </div>
         )}
