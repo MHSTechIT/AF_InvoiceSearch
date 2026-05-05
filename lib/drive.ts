@@ -15,8 +15,9 @@ export async function uploadToDrive(
   stream.push(pdfBuffer);
   stream.push(null);
 
-  // Upload file
+  // Upload file — supportsAllDrives required for Shared Drives
   const uploadRes = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: {
       name: filename,
       mimeType: 'application/pdf',
@@ -35,6 +36,7 @@ export async function uploadToDrive(
   // Make file publicly viewable
   await drive.permissions.create({
     fileId,
+    supportsAllDrives: true,
     requestBody: {
       role: 'reader',
       type: 'anyone',
