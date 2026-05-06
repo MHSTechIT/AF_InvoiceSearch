@@ -1,13 +1,13 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
-import { getGoogleAuth } from './google-auth';
+import { getDriveOAuthClient } from './google-drive-oauth';
 
 export async function uploadToDrive(
   pdfBuffer: Buffer,
   filename: string,
   folderId: string
 ): Promise<string> {
-  const auth = getGoogleAuth();
+  const auth = getDriveOAuthClient();
   const drive = google.drive({ version: 'v3', auth });
 
   // Convert buffer to readable stream
