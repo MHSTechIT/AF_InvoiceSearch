@@ -5,6 +5,39 @@ import { HSN } from '@/lib/invoice-calc';
 const fmt = (n: number) =>
   n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// ─── Number to Words (Indian system) ─────────────────────────────────────────
+const ONES = [
+  '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+  'Seventeen', 'Eighteen', 'Nineteen',
+];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function convertChunk(n: number): string {
+  if (n === 0) return '';
+  if (n < 20) return ONES[n] + ' ';
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? ' ' + ONES[n % 10] : '') + ' ';
+  return ONES[Math.floor(n / 100)] + ' Hundred ' + convertChunk(n % 100);
+}
+
+function numberToWords(n: number): string {
+  const rupees = Math.floor(n);
+  const paise = Math.round((n - rupees) * 100);
+  let result = '';
+  if (rupees === 0) {
+    result = 'Zero';
+  } else {
+    let rem = rupees;
+    if (rem >= 10000000) { result += convertChunk(Math.floor(rem / 10000000)) + 'Crore '; rem %= 10000000; }
+    if (rem >= 100000)   { result += convertChunk(Math.floor(rem / 100000))   + 'Lakh ';  rem %= 100000; }
+    if (rem >= 1000)     { result += convertChunk(Math.floor(rem / 1000))     + 'Thousand '; rem %= 1000; }
+    if (rem > 0)         { result += convertChunk(rem); }
+  }
+  result = 'Rupees ' + result.trim();
+  if (paise > 0) result += ' and ' + convertChunk(paise).trim() + ' Paise';
+  return result + ' Only';
+}
+
 const TERMS = [
   '1) Personal Access Only: Course access is for the enrolled participant only. Sharing login, videos, or materials is not permitted.',
   '2) Health & Safety: Please do not change or stop any medications without consulting your doctor. The course is not a substitute for medical advice.',
@@ -18,9 +51,29 @@ const TERMS = [
   'Refund Policy: Fees are non-refundable. However, in exceptional cases, the management may review the situation. Applicable charges will be deducted, and the final refundable amount (if any) will be decided by the management based on the services utilized.',
 ];
 
+interface LineItem {
+  sno: number;
+  desc: string;
+  baseAmt: number;
+}
+
 export default function InvoicePreview({ data }: { data: InvoiceData }) {
   const { invoiceNumber, invoiceDate, clientName, phoneNo, gstin, address, itemDescription, baseValue, cgst, sgst, total } = data;
-  const sNo = invoiceNumber.split('/').pop() ?? '1';
+
+  // Change 3 — build line items (Application Fees & Course Fees separately)
+  const appFees = data.applicationFees ?? 0;
+  const courseFees = total - appFees;
+  let lineItems: LineItem[];
+  if (appFees > 0 && courseFees > 50) {
+    lineItems = [
+      { sno: 1, desc: 'Application Fees',      baseAmt: parseFloat((appFees / 1.18).toFixed(2)) },
+      { sno: 2, desc: 'Course Membership Fees', baseAmt: parseFloat((courseFees / 1.18).toFixed(2)) },
+    ];
+  } else if (appFees > 0) {
+    lineItems = [{ sno: 1, desc: 'Application Fees', baseAmt: baseValue }];
+  } else {
+    lineItems = [{ sno: 1, desc: itemDescription, baseAmt: baseValue }];
+  }
 
   return (
     <div className="border border-gray-300 rounded bg-white text-[11px]" style={{ fontFamily: 'Arial, sans-serif' }}>
@@ -30,73 +83,65 @@ export default function InvoicePreview({ data }: { data: InvoiceData }) {
         TAX INVOICE
       </div>
 
-      {/* Header: Logo + Company */}
+      {/* Change 1 — larger logo | Change 4 — updated address */}
       <div className="flex border-b border-gray-400">
         <div className="w-1/4 flex items-center justify-center p-3 border-r border-gray-400">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="MHS Logo" className="h-14 object-contain" />
+          <img src="/logo.png" alt="MHS Logo" className="h-20 object-contain" />
         </div>
         <div className="w-3/4 p-3 space-y-0.5">
           <p className="font-bold text-sm underline">Integfarms My Health School Pvt Ltd</p>
-          <p>Tamil Nadu India</p>
-          <p>GSTIN 33AAHCI2845R1Z2</p>
-          <p>9524444664 &nbsp;&nbsp; TAX INVOICE</p>
+          <p>No 108/2B, D Block, Grahalaya Paramjeeta Apartments,</p>
+          <p>Poonamallee High Road, Kumananchavadi, Chennai-600056, Tamil Nadu</p>
+          <p>GSTIN - 33AAHCI2845R1Z2</p>
           <p>info@myhealthschool.in</p>
+          <p>+91 89259 45902</p>
         </div>
       </div>
 
-      {/* Invoice No & Date */}
+      {/* Change 5 — removed Place of Supply */}
       <div className="flex border-b border-gray-400">
         <div className="flex-1 p-2 border-r border-gray-400">
           <span className="font-semibold">Invoice No</span> : {invoiceNumber}
         </div>
-        <div className="flex-1 p-2 flex gap-6 flex-wrap">
-          <span><span className="font-semibold">Invoice Date</span> : {invoiceDate}</span>
-          <span><span className="font-semibold">Place Of Supply</span> : Tamil Nadu (33)</span>
+        <div className="flex-1 p-2">
+          <span className="font-semibold">Invoice Date</span> : {invoiceDate}
         </div>
       </div>
 
-      {/* Bill To */}
+      {/* Bill To — Change 9: phone inside address block */}
       <div className="bg-gray-200 font-bold p-2 border-b border-gray-400">Bill To</div>
       <div className="p-3 border-b border-gray-400 space-y-0.5">
         <p className="font-bold text-sm">{clientName}</p>
         {address && <p className="text-gray-600">{address}</p>}
-        {gstin && <p className="text-gray-600"><span className="font-semibold">GSTIN :</span> {gstin}</p>}
-      </div>
-      <div className="flex p-2 border-b border-gray-400">
-        <span className="font-semibold w-12">Phone</span>
-        <span>{phoneNo}</span>
+        {gstin   && <p className="text-gray-600"><span className="font-semibold">GSTIN :</span> {gstin}</p>}
+        <p className="text-gray-600"><span className="font-semibold">Phone :</span> {phoneNo}</p>
       </div>
 
-      {/* Table */}
+      {/* Change 7 — removed CGST/SGST columns | Change 6 — Rate = base value */}
       <table className="w-full border-collapse border-b border-gray-400 text-[10.5px]">
         <thead>
           <tr className="bg-gray-100">
             <th className="border border-gray-400 p-1.5 text-center w-8">S No</th>
-            <th className="border border-gray-400 p-1.5 text-left">Item & Description</th>
+            <th className="border border-gray-400 p-1.5 text-left">Item &amp; Description</th>
             <th className="border border-gray-400 p-1.5 text-center w-16">HSN/SAC</th>
             <th className="border border-gray-400 p-1.5 text-center w-8">Qty</th>
-            <th className="border border-gray-400 p-1.5 text-right w-20">Rate</th>
-            <th className="border border-gray-400 p-1.5 text-center w-10">CGST %</th>
-            <th className="border border-gray-400 p-1.5 text-right w-20">CGST Amt</th>
-            <th className="border border-gray-400 p-1.5 text-center w-10">SGST %</th>
-            <th className="border border-gray-400 p-1.5 text-right w-20">SGST Amt</th>
+            <th className="border border-gray-400 p-1.5 text-right w-24">Rate</th>
             <th className="border border-gray-400 p-1.5 text-right w-24">Amount</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td className="border border-gray-400 p-1.5 text-center">{sNo}</td>
-            <td className="border border-gray-400 p-1.5">{itemDescription}</td>
-            <td className="border border-gray-400 p-1.5 text-center">{HSN}</td>
-            <td className="border border-gray-400 p-1.5 text-center">1</td>
-            <td className="border border-gray-400 p-1.5 text-right">{fmt(total)}</td>
-            <td className="border border-gray-400 p-1.5 text-center">9%</td>
-            <td className="border border-gray-400 p-1.5 text-right">{fmt(cgst)}</td>
-            <td className="border border-gray-400 p-1.5 text-center">9%</td>
-            <td className="border border-gray-400 p-1.5 text-right">{fmt(sgst)}</td>
-            <td className="border border-gray-400 p-1.5 text-right">{fmt(total)}</td>
-          </tr>
+          {/* Change 2+3 — rows from lineItems, Change 6 — shows baseAmt */}
+          {lineItems.map((item) => (
+            <tr key={item.sno}>
+              <td className="border border-gray-400 p-1.5 text-center">{item.sno}</td>
+              <td className="border border-gray-400 p-1.5">{item.desc}</td>
+              <td className="border border-gray-400 p-1.5 text-center">{HSN}</td>
+              <td className="border border-gray-400 p-1.5 text-center">1</td>
+              <td className="border border-gray-400 p-1.5 text-right">{fmt(item.baseAmt)}</td>
+              <td className="border border-gray-400 p-1.5 text-right">{fmt(item.baseAmt)}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
 
@@ -126,9 +171,14 @@ export default function InvoicePreview({ data }: { data: InvoiceData }) {
         </div>
       </div>
 
+      {/* Change 8 — Amount in Words */}
+      <div className="p-2 border-b border-gray-400 text-[10px] italic">
+        <span className="font-semibold not-italic">Amount in Words:</span> {numberToWords(total)}
+      </div>
+
       {/* Terms & Conditions */}
       <div className="bg-gray-100 font-bold p-2 border-b border-gray-400 text-[10.5px]">
-        Terms & Conditions
+        Terms &amp; Conditions
       </div>
       <div className="p-3 space-y-1">
         {TERMS.map((t, i) => (
