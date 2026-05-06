@@ -15,6 +15,8 @@ export function buildInvoiceData(row: InvoiceRow): InvoiceData {
       ? 'Application Fees'
       : 'Course Membership Fees');
 
+  const applicationFees = parseFloat(String(row.applicationFees || '0').replace(/[^0-9.]/g, '')) || 0;
+
   return {
     invoiceNumber: row.invoiceNumber,
     invoiceDate: row.invoiceDate || row.date || new Date().toLocaleDateString('en-IN'),
@@ -30,6 +32,7 @@ export function buildInvoiceData(row: InvoiceRow): InvoiceData {
     cgst,
     sgst,
     total: rawAmount,
+    applicationFees,
   };
 }
 

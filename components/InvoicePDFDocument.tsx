@@ -16,49 +16,83 @@ function getLogoSrc(): string | null {
   }
 }
 
+// ─── Number to Words (Indian system) ─────────────────────────────────────────
+const ONES = [
+  '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+  'Seventeen', 'Eighteen', 'Nineteen',
+];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function convertChunk(n: number): string {
+  if (n === 0) return '';
+  if (n < 20) return ONES[n] + ' ';
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? ' ' + ONES[n % 10] : '') + ' ';
+  return ONES[Math.floor(n / 100)] + ' Hundred ' + convertChunk(n % 100);
+}
+
+function numberToWords(n: number): string {
+  const rupees = Math.floor(n);
+  const paise = Math.round((n - rupees) * 100);
+  let result = '';
+  if (rupees === 0) {
+    result = 'Zero';
+  } else {
+    let rem = rupees;
+    if (rem >= 10000000) { result += convertChunk(Math.floor(rem / 10000000)) + 'Crore '; rem %= 10000000; }
+    if (rem >= 100000)   { result += convertChunk(Math.floor(rem / 100000))   + 'Lakh ';  rem %= 100000; }
+    if (rem >= 1000)     { result += convertChunk(Math.floor(rem / 1000))     + 'Thousand '; rem %= 1000; }
+    if (rem > 0)         { result += convertChunk(rem); }
+  }
+  result = 'Rupees ' + result.trim();
+  if (paise > 0) result += ' and ' + convertChunk(paise).trim() + ' Paise';
+  return result + ' Only';
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  page: { fontSize: 9, padding: 30, color: '#000' },
-  title: { textAlign: 'center', fontSize: 12, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginBottom: 0 },
-  headerRow: { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
-  logoCell: { width: '22%', padding: 6, borderRightWidth: 1, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  logo: { width: 65, height: 45 },
-  logoPlaceholder: { width: 65, height: 45, backgroundColor: '#f0f0f0' },
-  companyCell: { width: '78%', padding: 6 },
-  companyName: { fontSize: 10, fontWeight: 'bold', textDecoration: 'underline', marginBottom: 2 },
+  page:          { fontSize: 9, padding: 30, color: '#000' },
+  title:         { textAlign: 'center', fontSize: 12, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginBottom: 0 },
+  headerRow:     { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
+  logoCell:      { width: '22%', padding: 6, borderRightWidth: 1, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  // Change 1 — larger logo
+  logo:          { width: 90, height: 65 },
+  logoPlaceholder: { width: 90, height: 65, backgroundColor: '#f0f0f0' },
+  companyCell:   { width: '78%', padding: 6 },
+  companyName:   { fontSize: 10, fontWeight: 'bold', textDecoration: 'underline', marginBottom: 2 },
   companyDetail: { fontSize: 8, marginTop: 1.5 },
-  infoRow: { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
-  infoCell: { flex: 1, padding: 4 },
-  infoText: { fontSize: 8.5 },
-  billToHeader: { backgroundColor: '#d9d9d9', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 4 },
-  billToLabel: { fontSize: 9, fontWeight: 'bold' },
-  billToRow: { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 6 },
-  clientName: { fontSize: 10, fontWeight: 'bold' },
-  phoneRow: { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 4 },
-  phoneLabel: { fontSize: 9, fontWeight: 'bold', width: 50 },
-  phoneValue: { fontSize: 9 },
-  tableHeader: { flexDirection: 'row', borderWidth: 1, borderColor: '#000', backgroundColor: '#f2f2f2' },
-  tableRow: { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
-  colSNo:    { width: '5%',  padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
-  colDesc:   { width: '27%', padding: 3, borderRightWidth: 1, borderColor: '#000' },
-  colHsn:    { width: '9%',  padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
-  colQty:    { width: '5%',  padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
-  colRate:   { width: '11%', padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'right' },
-  colGstPct: { width: '5%',  padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
-  colGstAmt: { width: '11%', padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'right' },
-  colAmt:    { width: '11%', padding: 3, textAlign: 'right' },
+  infoRow:       { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
+  infoCell:      { flex: 1, padding: 4 },
+  infoText:      { fontSize: 8.5 },
+  billToHeader:  { backgroundColor: '#d9d9d9', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 4 },
+  billToLabel:   { fontSize: 9, fontWeight: 'bold' },
+  billToRow:     { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 6 },
+  clientName:    { fontSize: 10, fontWeight: 'bold' },
+  // Change 7 — updated column widths (no GST columns)
+  tableHeader:   { flexDirection: 'row', borderWidth: 1, borderColor: '#000', backgroundColor: '#f2f2f2' },
+  tableRow:      { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
+  colSNo:        { width: '6%',    padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
+  colDesc:       { width: '42%',   padding: 3, borderRightWidth: 1, borderColor: '#000' },
+  colHsn:        { width: '12%',   padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
+  colQty:        { width: '7%',    padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'center' },
+  colRate:       { width: '16.5%', padding: 3, borderRightWidth: 1, borderColor: '#000', textAlign: 'right' },
+  colAmt:        { width: '16.5%', padding: 3, textAlign: 'right' },
   summarySection: { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
-  summaryLeft: { flex: 1 },
-  summaryRight: { width: 190, borderLeftWidth: 1, borderColor: '#000' },
-  summaryRow: { flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: '#ddd' },
-  summaryLabel: { flex: 1, textAlign: 'right', fontSize: 8.5, paddingRight: 6 },
-  summaryValue: { width: 65, textAlign: 'right', fontSize: 8.5 },
-  taxNote: { paddingHorizontal: 6, paddingVertical: 2, textAlign: 'right', fontSize: 7.5, color: '#555', borderBottomWidth: 1, borderColor: '#ddd' },
-  totalRow: { flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 4 },
-  totalLabel: { flex: 1, textAlign: 'right', fontSize: 10, fontWeight: 'bold', paddingRight: 6 },
-  totalValue: { width: 65, textAlign: 'right', fontSize: 10, fontWeight: 'bold' },
-  tcHeader: { fontSize: 8.5, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginTop: 6 },
-  tcBody: { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 5 },
-  tcText: { fontSize: 7, marginBottom: 2.5, lineHeight: 1.4 },
+  summaryLeft:   { flex: 1 },
+  summaryRight:  { width: 190, borderLeftWidth: 1, borderColor: '#000' },
+  summaryRow:    { flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: '#ddd' },
+  summaryLabel:  { flex: 1, textAlign: 'right', fontSize: 8.5, paddingRight: 6 },
+  summaryValue:  { width: 65, textAlign: 'right', fontSize: 8.5 },
+  taxNote:       { paddingHorizontal: 6, paddingVertical: 2, textAlign: 'right', fontSize: 7.5, color: '#555', borderBottomWidth: 1, borderColor: '#ddd' },
+  totalRow:      { flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 4 },
+  totalLabel:    { flex: 1, textAlign: 'right', fontSize: 10, fontWeight: 'bold', paddingRight: 6 },
+  totalValue:    { width: 65, textAlign: 'right', fontSize: 10, fontWeight: 'bold' },
+  // Change 8 — amount in words row
+  amountWords:     { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 5 },
+  amountWordsText: { fontSize: 8 },
+  tcHeader:      { fontSize: 8.5, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginTop: 6 },
+  tcBody:        { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 5 },
+  tcText:        { fontSize: 7, marginBottom: 2.5, lineHeight: 1.4 },
 });
 
 const fmt = (n: number) =>
@@ -77,10 +111,30 @@ const TERMS = [
   'Refund Policy: Fees are non-refundable. However, in exceptional cases, the management may review the situation. Applicable charges will be deducted, and the final refundable amount (if any) will be decided by the management based on the services utilized.',
 ];
 
+interface LineItem {
+  sno: number;
+  desc: string;
+  baseAmt: number;
+}
+
 export function InvoicePDFDocument({ data }: { data: InvoiceData }) {
   const { invoiceNumber, invoiceDate, clientName, phoneNo, gstin, address, itemDescription, baseValue, cgst, sgst, total } = data;
-  const sNo = invoiceNumber.split('/').pop() ?? '1';
   const logoSrc = getLogoSrc();
+
+  // Change 3 — build line items (Application Fees & Course Fees separately)
+  const appFees = data.applicationFees ?? 0;
+  const courseFees = total - appFees;
+  let lineItems: LineItem[];
+  if (appFees > 0 && courseFees > 50) {
+    lineItems = [
+      { sno: 1, desc: 'Application Fees',       baseAmt: parseFloat((appFees / 1.18).toFixed(2)) },
+      { sno: 2, desc: 'Course Membership Fees',  baseAmt: parseFloat((courseFees / 1.18).toFixed(2)) },
+    ];
+  } else if (appFees > 0) {
+    lineItems = [{ sno: 1, desc: 'Application Fees', baseAmt: baseValue }];
+  } else {
+    lineItems = [{ sno: 1, desc: itemDescription, baseAmt: baseValue }];
+  }
 
   return (
     <Document>
@@ -95,64 +149,58 @@ export function InvoicePDFDocument({ data }: { data: InvoiceData }) {
               : <View style={s.logoPlaceholder} />
             }
           </View>
+          {/* Change 4 — updated company address */}
           <View style={s.companyCell}>
             <Text style={s.companyName}>Integfarms My Health School Pvt Ltd</Text>
-            <Text style={s.companyDetail}>Tamil Nadu India</Text>
-            <Text style={s.companyDetail}>GSTIN 33AAHCI2845R1Z2</Text>
-            <Text style={s.companyDetail}>9524444664{'     '}TAX INVOICE</Text>
+            <Text style={s.companyDetail}>No 108/2B, D Block, Grahalaya Paramjeeta Apartments,</Text>
+            <Text style={s.companyDetail}>Poonamallee High Road, Kumananchavadi, Chennai-600056, Tamil Nadu</Text>
+            <Text style={s.companyDetail}>GSTIN - 33AAHCI2845R1Z2</Text>
             <Text style={s.companyDetail}>info@myhealthschool.in</Text>
+            <Text style={s.companyDetail}>+91 89259 45902</Text>
           </View>
         </View>
 
-        {/* Invoice Info */}
+        {/* Change 5 — Invoice Info (Place of Supply removed) */}
         <View style={s.infoRow}>
           <View style={[s.infoCell, { borderRightWidth: 1, borderColor: '#000' }]}>
             <Text style={s.infoText}>Invoice No  :  {invoiceNumber}</Text>
           </View>
           <View style={s.infoCell}>
-            <Text style={s.infoText}>Invoice Date : {invoiceDate}{'     '}Place Of Supply : Tamil Nadu (33)</Text>
+            <Text style={s.infoText}>Invoice Date : {invoiceDate}</Text>
           </View>
         </View>
 
-        {/* Bill To */}
+        {/* Bill To — Change 9: phone inside address block */}
         <View style={s.billToHeader}><Text style={s.billToLabel}>Bill To</Text></View>
         <View style={s.billToRow}>
           <Text style={s.clientName}>{clientName}</Text>
-          {address ? <Text style={{ fontSize: 8, marginTop: 2 }}>{address}</Text> : null}
-          {gstin  ? <Text style={{ fontSize: 8, marginTop: 1 }}>GSTIN : {gstin}</Text> : null}
-        </View>
-        <View style={s.phoneRow}>
-          <Text style={s.phoneLabel}>Phone</Text>
-          <Text style={s.phoneValue}>{phoneNo}</Text>
+          {address  ? <Text style={{ fontSize: 8, marginTop: 2 }}>{address}</Text> : null}
+          {gstin    ? <Text style={{ fontSize: 8, marginTop: 1 }}>GSTIN : {gstin}</Text> : null}
+          <Text style={{ fontSize: 8, marginTop: 1 }}>Phone : {phoneNo}</Text>
         </View>
 
-        {/* Table Header */}
+        {/* Change 7 — Table Header (no GST columns) */}
         <View style={s.tableHeader}>
           <Text style={s.colSNo}>S No</Text>
-          <Text style={s.colDesc}>Item & Description</Text>
+          <Text style={s.colDesc}>Item &amp; Description</Text>
           <Text style={s.colHsn}>HSN{'\n'}/SAC</Text>
           <Text style={s.colQty}>Qty</Text>
+          {/* Change 6 — Rate header label unchanged, but shows base value */}
           <Text style={s.colRate}>Rate</Text>
-          <Text style={s.colGstPct}>CGST{'\n'}%</Text>
-          <Text style={s.colGstAmt}>CGST{'\n'}Amt</Text>
-          <Text style={s.colGstPct}>SGST{'\n'}%</Text>
-          <Text style={s.colGstAmt}>SGST{'\n'}Amt</Text>
           <Text style={s.colAmt}>Amount</Text>
         </View>
 
-        {/* Table Row */}
-        <View style={s.tableRow}>
-          <Text style={s.colSNo}>{sNo}</Text>
-          <Text style={s.colDesc}>{itemDescription}</Text>
-          <Text style={s.colHsn}>{HSN}</Text>
-          <Text style={s.colQty}>1</Text>
-          <Text style={s.colRate}>{fmt(total)}</Text>
-          <Text style={s.colGstPct}>9%</Text>
-          <Text style={s.colGstAmt}>{fmt(cgst)}</Text>
-          <Text style={s.colGstPct}>9%</Text>
-          <Text style={s.colGstAmt}>{fmt(sgst)}</Text>
-          <Text style={s.colAmt}>{fmt(total)}</Text>
-        </View>
+        {/* Change 2+3 — Rows from lineItems array, Change 6 — Rate = base value */}
+        {lineItems.map((item) => (
+          <View style={s.tableRow} key={item.sno}>
+            <Text style={s.colSNo}>{item.sno}</Text>
+            <Text style={s.colDesc}>{item.desc}</Text>
+            <Text style={s.colHsn}>{HSN}</Text>
+            <Text style={s.colQty}>1</Text>
+            <Text style={s.colRate}>{fmt(item.baseAmt)}</Text>
+            <Text style={s.colAmt}>{fmt(item.baseAmt)}</Text>
+          </View>
+        ))}
 
         {/* Summary */}
         <View style={s.summarySection}>
@@ -178,8 +226,13 @@ export function InvoicePDFDocument({ data }: { data: InvoiceData }) {
           </View>
         </View>
 
+        {/* Change 8 — Amount in Words */}
+        <View style={s.amountWords}>
+          <Text style={s.amountWordsText}>Amount in Words: {numberToWords(total)}</Text>
+        </View>
+
         {/* Terms */}
-        <View style={s.tcHeader}><Text>Terms & Conditions</Text></View>
+        <View style={s.tcHeader}><Text>Terms &amp; Conditions</Text></View>
         <View style={s.tcBody}>
           {TERMS.map((t, i) => <Text key={i} style={s.tcText}>{t}</Text>)}
         </View>

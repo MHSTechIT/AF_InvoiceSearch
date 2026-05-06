@@ -34,6 +34,7 @@ export interface InvoiceData {
   cgst: number;
   sgst: number;
   total: number;
+  applicationFees?: number;
 }
 
 export interface InvoiceSummary {
