@@ -1,8 +1,8 @@
 import { google } from 'googleapis';
 
-let cachedClient: ReturnType<typeof google.auth.fromClient> | null = null;
+let cachedClient: InstanceType<typeof google.auth.OAuth2> | null = null;
 
-export function getDriveOAuthClient() {
+export function getDriveOAuthClient(): InstanceType<typeof google.auth.OAuth2> {
   if (cachedClient) return cachedClient;
 
   const oauth2Client = new google.auth.OAuth2(
