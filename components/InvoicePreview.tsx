@@ -85,9 +85,9 @@ export default function InvoicePreview({ data }: { data: InvoiceData }) {
 
       {/* Change 1 — larger logo | Change 4 — updated address */}
       <div className="flex border-b border-gray-400">
-        <div className="w-1/4 flex items-center justify-center p-3 border-r border-gray-400">
+        <div className="w-1/4 flex items-center justify-center p-4 border-r border-gray-400">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="MHS Logo" className="h-20 object-contain" />
+          <img src="/logo.png" alt="MHS Logo" className="w-full max-h-28 object-contain" />
         </div>
         <div className="w-3/4 p-3 space-y-0.5">
           <p className="font-bold text-sm underline">Integfarms My Health School Pvt Ltd</p>

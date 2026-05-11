@@ -55,9 +55,9 @@ const s = StyleSheet.create({
   title:         { textAlign: 'center', fontSize: 12, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginBottom: 0 },
   headerRow:     { flexDirection: 'row', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000' },
   logoCell:      { width: '22%', padding: 6, borderRightWidth: 1, borderColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  // Change 1 — larger logo
-  logo:          { width: 90, height: 65 },
-  logoPlaceholder: { width: 90, height: 65, backgroundColor: '#f0f0f0' },
+  // Change 1 — larger logo (square image, use objectFit to preserve aspect ratio)
+  logo:          { width: 100, height: 100, objectFit: 'contain' },
+  logoPlaceholder: { width: 100, height: 100, backgroundColor: '#f0f0f0' },
   companyCell:   { width: '78%', padding: 6 },
   companyName:   { fontSize: 10, fontWeight: 'bold', textDecoration: 'underline', marginBottom: 2 },
   companyDetail: { fontSize: 8, marginTop: 1.5 },

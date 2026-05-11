@@ -11,7 +11,13 @@ function normalize(str: string) {
 function mapRow(headers: string[], values: string[]): InvoiceRow {
   const row: Record<string, string> = {};
   headers.forEach((h, i) => {
-    row[normalize(h)] = (values[i] ?? '').trim();
+    const key = normalize(h);
+    // Don't overwrite if key already exists (handles duplicate column names)
+    // The first "Application Fees" column (index 12) has the actual fee amounts,
+    // the second one (index 20) has payment method — keep the first one.
+    if (key && !(key in row)) {
+      row[key] = (values[i] ?? '').trim();
+    }
   });
 
   return {
@@ -27,7 +33,7 @@ function mapRow(headers: string[], values: string[]): InvoiceRow {
     l1Batch: row['l1 batch'] ?? row['l1batch'] ?? '',
     l2Batch: row['l2 batch'] ?? row['l2batch'] ?? '',
     paymentType: row['payment type'] ?? row['paymenttype'] ?? '',
-    applicationFees: row['application fees'] ?? row['app fees'] ?? '',
+    applicationFees: row['application fees'] ?? row['application fee'] ?? row['app fees'] ?? row['app fee'] ?? row['applicationfees'] ?? row['appfees'] ?? row['application'] ?? row['app'] ?? '',
     invoiceNumber: row['invoice number'] ?? row['invoice no'] ?? '',
     invoiceDate: row['invoice date'] ?? row['invoicedate'] ?? '',
     invoiceAmount: row['invoice amount'] ?? row['amount'] ?? '',
@@ -47,6 +53,7 @@ export async function fetchSheetRows(): Promise<InvoiceRow[]> {
   if (rows.length < 2) return [];
 
   const headers = rows[0];
+
   return rows.slice(1).map(r => mapRow(headers, r));
 }
 
