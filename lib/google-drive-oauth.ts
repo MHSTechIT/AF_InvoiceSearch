@@ -1,19 +1,9 @@
-import { google } from 'googleapis';
+import { getGoogleAuth } from './google-auth';
 
-let cachedClient: InstanceType<typeof google.auth.OAuth2> | null = null;
+// Use Service Account for Drive uploads (never expires, unlike OAuth2 refresh tokens).
+// The service account already has drive scope configured in google-auth.ts.
+// The target Drive folders must be shared with the service account email.
 
-export function getDriveOAuthClient(): InstanceType<typeof google.auth.OAuth2> {
-  if (cachedClient) return cachedClient;
-
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_OAUTH_CLIENT_ID,
-    process.env.GOOGLE_OAUTH_CLIENT_SECRET,
-  );
-
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN,
-  });
-
-  cachedClient = oauth2Client;
-  return cachedClient;
+export function getDriveOAuthClient() {
+  return getGoogleAuth();
 }
