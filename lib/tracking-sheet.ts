@@ -137,3 +137,77 @@ export async function updateInvoiceUrl(
     requestBody: { values: [[invoiceUrl]] },
   });
 }
+
+// ─── Write L2 invoice details to Tracking Sheet ─────────────────────────────
+// Writes Invoice URL (col P=15), Invoice Number (col R=17), Invoice Date (col S=18)
+export async function writeL2InvoiceToTrackingSheet(
+  phone: string,
+  invoiceUrl: string,
+  invoiceNumber: string,
+  invoiceDate: string
+): Promise<void> {
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  // Get all tabs
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: TRACKING_SHEET_ID });
+  const sheetList = meta.data.sheets ?? [];
+
+  // Search both Diamond and Gold tabs
+  const gids = [DIAMOND_GID, GOLD_GID];
+  for (const gid of gids) {
+    const sheetTitle = gidToSheetName(gid, sheetList as { properties: { sheetId: number; title: string } }[]);
+    if (!sheetTitle) continue;
+
+    const range = `'${sheetTitle}'!A:Z`;
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: TRACKING_SHEET_ID,
+      range,
+    });
+
+    const rows = res.data.values ?? [];
+    if (rows.length < 2) continue;
+
+    // Find phone column (row 1 headers)
+    const headers = rows[0].map((h: string) => h.trim().toLowerCase());
+    const phoneColIdx = headers.findIndex(
+      (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
+    );
+    if (phoneColIdx === -1) continue;
+
+    const target = normalizePhone(phone);
+    for (let i = 1; i < rows.length; i++) {
+      const cell = normalizePhone(String(rows[i]?.[phoneColIdx] ?? ''));
+      if (cell !== target) continue;
+
+      const rowNum = i + 1; // 1-based for Sheets API
+
+      // Write Invoice URL to col P (index 15)
+      // Write Invoice Number to col R (index 17)
+      // Write Invoice Date to col S (index 18)
+      const batchUpdate = [
+        {
+          range: `'${sheetTitle}'!P${rowNum}`,
+          values: [[invoiceUrl]],
+        },
+        {
+          range: `'${sheetTitle}'!R${rowNum}:S${rowNum}`,
+          values: [[invoiceNumber, invoiceDate]],
+        },
+      ];
+
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: TRACKING_SHEET_ID,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: batchUpdate,
+        },
+      });
+
+      console.log(`[Tracking] Wrote L2 invoice to "${sheetTitle}" row ${rowNum}: URL=${invoiceUrl}, #=${invoiceNumber}, Date=${invoiceDate}`);
+      return;
+    }
+  }
+
+  console.warn(`[Tracking] Phone ${phone} not found in tracking sheet for invoice write-back`);
+}

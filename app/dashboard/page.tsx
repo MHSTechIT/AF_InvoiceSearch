@@ -136,9 +136,17 @@ export default function DashboardPage() {
             <p className="text-xs text-gray-500">Invoice Generator</p>
           </div>
         </div>
-        <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 transition font-medium">
-          Sign Out
-        </button>
+        <div className="flex items-center gap-4">
+          <a
+            href="/l2-verification"
+            className="text-sm text-purple-600 hover:text-purple-800 transition font-medium"
+          >
+            L2 Verification
+          </a>
+          <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 transition font-medium">
+            Sign Out
+          </button>
+        </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8">

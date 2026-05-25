@@ -1,0 +1,65 @@
+import { InvoiceData, L2StudentRecord, PaymentMatch } from './types';
+
+const GST_RATE = 0.18; // 9% CGST + 9% SGST
+
+/**
+ * Build InvoiceData from an L2 student record and all verified payments.
+ * Separates ₹999 application fees from course membership fees.
+ * Uses the same GST calculation as the existing invoice-calc.ts.
+ * Output is fully compatible with InvoicePDFDocument and InvoicePreview.
+ */
+export function buildL2InvoiceData(
+  student: L2StudentRecord,
+  payment: PaymentMatch,
+  invoiceNumber: string,
+  allPayments?: PaymentMatch[]
+): InvoiceData {
+  // If allPayments provided, sum all amounts and separate app fees
+  let totalAmount: number;
+  let appFeeAmount = 0;
+
+  if (allPayments && allPayments.length > 0) {
+    totalAmount = 0;
+    for (const p of allPayments) {
+      const amt = parseFloat(p.amount.replace(/[^0-9.]/g, '')) || 0;
+      if (amt === 999) {
+        appFeeAmount += amt;
+      }
+      totalAmount += amt;
+    }
+  } else {
+    // Fallback: single payment
+    totalAmount = parseFloat(payment.amount.replace(/[^0-9.]/g, '')) || 0;
+  }
+
+  // Amounts are GST-inclusive (same formula as invoice-calc.ts)
+  const baseValue = parseFloat((totalAmount / (1 + GST_RATE)).toFixed(2));
+  const cgst = parseFloat((baseValue * 0.09).toFixed(2));
+  const sgst = parseFloat((baseValue * 0.09).toFixed(2));
+
+  // Format today's date as DD MMM YYYY (e.g., "14 May 2026")
+  const today = new Date();
+  const invoiceDate = today.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  return {
+    invoiceNumber,
+    invoiceDate,
+    clientName: student.name,
+    phoneNo: student.phone,
+    email: student.email,
+    gstin: student.gstin,
+    address: student.address,
+    batch: student.batch,
+    itemDescription: 'Course Membership Fees',
+    amount: totalAmount,
+    baseValue,
+    cgst,
+    sgst,
+    total: totalAmount,
+    applicationFees: appFeeAmount > 0 ? appFeeAmount : undefined,
+  };
+}

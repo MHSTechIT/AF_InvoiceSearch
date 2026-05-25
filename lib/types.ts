@@ -46,3 +46,27 @@ export interface InvoiceSummary {
   invoiceAmount: string;
   itemDescription: string;
 }
+
+// ─── L2 Payment Verification Types ──────────────────────────────────────────
+
+export interface PaymentMatch {
+  gateway: string;       // e.g., "ICICI", "Razorpay"
+  amount: string;        // raw cell value from amount column
+  date: string;          // raw cell value from date column
+  phone: string;         // the matched phone value
+  rowIndex: number;      // row number in the gateway tab (for reference)
+}
+
+export interface L2StudentRecord {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  gstin: string;
+  batch: string;           // "Diamond" or "Gold"
+  rowIndex: number;        // 0-based row in the tab (including header)
+  tabName: string;         // "L2 Diamond Accounts" or "L2 Gold Accounts"
+  existingInvoiceNumber: string;  // col M — check if already invoiced
+  existingInvoiceDate: string;    // col N
+  existingInvoiceAmount: string;  // col O
+}

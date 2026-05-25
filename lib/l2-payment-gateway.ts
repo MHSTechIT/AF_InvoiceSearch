@@ -1,0 +1,258 @@
+import { google } from 'googleapis';
+import { getGoogleAuth } from './google-auth';
+import { PaymentMatch } from './types';
+
+const L2_ACCOUNTS_SHEET_ID = process.env.L2_ACCOUNTS_SHEET_ID!;
+
+// ─── Column letter → 0-based index conversion ──────────────────────────────
+// A=0, B=1, ..., Z=25, AA=26, AB=27, ..., AZ=51, BA=52, BB=53, ...
+function colLetterToIndex(col: string): number {
+  let idx = 0;
+  for (let i = 0; i < col.length; i++) {
+    idx = idx * 26 + (col.charCodeAt(i) - 64); // A=65
+  }
+  return idx - 1; // 0-based
+}
+
+// 0-based index → A1 notation letter
+function colIndexToLetter(idx: number): string {
+  let result = '';
+  let n = idx + 1; // 1-based
+  while (n > 0) {
+    n--;
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+  return result;
+}
+
+// ─── Gateway Configuration ──────────────────────────────────────────────────
+interface GatewayConfig {
+  tabName: string;
+  phoneCols: number[];   // 0-based column indices
+  amountCol: number;     // 0-based
+  dateCol: number;       // 0-based
+  categoryCol: number;   // 0-based — "Category" column for L2 filtering
+  label: string;         // Display name
+}
+
+// L2 category prefixes to include (002=Application, 003=Diamond, 004=Gold, 005=EMI)
+const L2_CATEGORY_PREFIXES = ['002', '003', '004', '005'];
+
+const GATEWAYS: GatewayConfig[] = [
+  {
+    label: 'ICICI',
+    tabName: 'ICICI',
+    phoneCols: [colLetterToIndex('J'), colLetterToIndex('N')],   // J=9, N=13
+    amountCol: colLetterToIndex('I'),                             // I=8
+    dateCol: colLetterToIndex('L'),                               // L=11
+    categoryCol: colLetterToIndex('K'),                           // K=10
+  },
+  {
+    label: 'Razorpay',
+    tabName: 'Razorpay',
+    phoneCols: [colLetterToIndex('Q')],                           // Q=16
+    amountCol: colLetterToIndex('E'),                             // E=4
+    dateCol: colLetterToIndex('V'),                               // V=21
+    categoryCol: colLetterToIndex('N'),                           // N=13
+  },
+  {
+    label: 'Tagmango',
+    tabName: 'Tagmamgo',
+    phoneCols: [colLetterToIndex('C')],                           // C=2
+    amountCol: colLetterToIndex('Z'),                             // Z=25
+    dateCol: colLetterToIndex('BB'),                              // BB=53
+    categoryCol: colLetterToIndex('AZ'),                          // AZ=51
+  },
+  {
+    label: 'Savein',
+    tabName: 'Savein',
+    phoneCols: [colLetterToIndex('R'), colLetterToIndex('T')],   // R=17, T=19
+    amountCol: colLetterToIndex('P'),                             // P=15
+    dateCol: colLetterToIndex('K'),                               // K=10
+    categoryCol: colLetterToIndex('Q'),                           // Q=16
+  },
+  {
+    label: 'Bajaj',
+    tabName: 'Bajaj Sheet',
+    phoneCols: [colLetterToIndex('BU'), colLetterToIndex('BW')], // BU=72, BW=74
+    amountCol: colLetterToIndex('AN'),                            // AN=39
+    dateCol: colLetterToIndex('AS'),                              // AS=44
+    categoryCol: colLetterToIndex('BV'),                          // BV=73
+  },
+  {
+    label: 'Jodo',
+    tabName: 'Jodo',
+    phoneCols: [colLetterToIndex('F'), colLetterToIndex('S')],   // F=5, S=18
+    amountCol: colLetterToIndex('K'),                             // K=10
+    dateCol: colLetterToIndex('M'),                               // M=12
+    categoryCol: colLetterToIndex('L'),                           // L=11
+  },
+  {
+    label: 'Phonepay',
+    tabName: 'Phonepay',
+    phoneCols: [colLetterToIndex('R')],                           // R=17
+    amountCol: colLetterToIndex('M'),                             // M=12
+    dateCol: colLetterToIndex('T'),                               // T=19
+    categoryCol: colLetterToIndex('S'),                           // S=18
+  },
+];
+
+// ─── Phone normalization (same as tracking-sheet.ts) ────────────────────────
+function normalizePhone(phone: string): string {
+  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '').slice(-10);
+}
+
+// ─── Normalize date to "DD MMM YYYY" format ────────────────────────────────
+function normalizeDate(raw: string): string {
+  if (!raw || !raw.trim()) return '';
+  const trimmed = raw.trim();
+
+  // Try parsing common formats
+  // "11-05-2026", "11/05/2026", "2026-05-11", "11-May-2026", "12April2026", etc.
+  let d: Date | null = null;
+
+  // Handle "12April2026" — no separator between day, month name, year
+  const noSepMatch = trimmed.match(/^(\d{1,2})\s*([A-Za-z]+)\s*(\d{4})$/);
+  if (noSepMatch) {
+    d = new Date(`${noSepMatch[2]} ${noSepMatch[1]}, ${noSepMatch[3]}`);
+  }
+
+  // Handle DD-MM-YYYY or DD/MM/YYYY
+  if (!d || isNaN(d.getTime())) {
+    const dmy = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmy) {
+      d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+    }
+  }
+
+  // Handle YYYY-MM-DD
+  if (!d || isNaN(d.getTime())) {
+    const ymd = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (ymd) {
+      d = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    }
+  }
+
+  // Fallback: let JS parse it
+  if (!d || isNaN(d.getTime())) {
+    d = new Date(trimmed);
+  }
+
+  if (!d || isNaN(d.getTime())) return trimmed; // return original if unparseable
+
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+// ─── Check if a category value is an L2 category ───────────────────────────
+function isL2Category(category: string): boolean {
+  const trimmed = category.trim();
+  return L2_CATEGORY_PREFIXES.some(prefix => trimmed.startsWith(prefix));
+}
+
+// ─── Search a single gateway tab ────────────────────────────────────────────
+async function searchGatewayTab(
+  gateway: GatewayConfig,
+  targetPhone: string
+): Promise<PaymentMatch[]> {
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  // Determine the widest column we need to read (include category column)
+  const allCols = [...gateway.phoneCols, gateway.amountCol, gateway.dateCol, gateway.categoryCol];
+  const maxCol = Math.max(...allCols);
+  const endColLetter = colIndexToLetter(maxCol);
+
+  const range = `'${gateway.tabName}'!A1:${endColLetter}`;
+
+  let rows: string[][];
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: L2_ACCOUNTS_SHEET_ID,
+      range,
+    });
+    rows = (res.data.values ?? []) as string[][];
+  } catch (err) {
+    console.warn(`⚠ Failed to read gateway tab "${gateway.tabName}":`, (err as Error).message);
+    return [];
+  }
+
+  if (rows.length < 2) return []; // no data rows
+
+  const matches: PaymentMatch[] = [];
+  const target = normalizePhone(targetPhone);
+
+  // Start from row 1 (skip header row 0)
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+
+    // Filter by L2 category — skip rows that are not L2 (002/003/004/005)
+    const category = String(row[gateway.categoryCol] ?? '').trim();
+    if (!category || !isL2Category(category)) continue;
+
+    // Check all phone columns for a match
+    const phoneMatched = gateway.phoneCols.some(colIdx => {
+      const cellValue = String(row[colIdx] ?? '').trim();
+      if (!cellValue) return false;
+      return normalizePhone(cellValue) === target;
+    });
+
+    if (!phoneMatched) continue;
+
+    // Extract amount and date
+    const amount = String(row[gateway.amountCol] ?? '').trim();
+    const date = normalizeDate(String(row[gateway.dateCol] ?? ''));
+
+    // Skip rows where amount is empty or zero
+    const numericAmount = parseFloat(amount.replace(/[^0-9.]/g, ''));
+    if (!amount || isNaN(numericAmount) || numericAmount <= 0) continue;
+
+    // Find the matched phone value for display
+    let matchedPhone = '';
+    for (const colIdx of gateway.phoneCols) {
+      const cell = String(row[colIdx] ?? '').trim();
+      if (cell && normalizePhone(cell) === target) {
+        matchedPhone = cell;
+        break;
+      }
+    }
+
+    matches.push({
+      gateway: gateway.label,
+      amount,
+      date,
+      phone: matchedPhone,
+      rowIndex: i + 1, // 1-based for user display
+    });
+  }
+
+  return matches;
+}
+
+// ─── Search all gateways in parallel ────────────────────────────────────────
+export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch[]> {
+  const target = normalizePhone(phone);
+  if (target.length !== 10) return [];
+
+  const results = await Promise.allSettled(
+    GATEWAYS.map(gw => searchGatewayTab(gw, target))
+  );
+
+  const allMatches: PaymentMatch[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'fulfilled') {
+      allMatches.push(...result.value);
+    } else {
+      console.warn(`⚠ Gateway "${GATEWAYS[i].label}" search failed:`, result.reason);
+    }
+  }
+
+  return allMatches;
+}
+
+export { GATEWAYS, colLetterToIndex, colIndexToLetter };
