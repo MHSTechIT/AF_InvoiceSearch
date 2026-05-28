@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
-import { getDriveOAuthClient } from './google-drive-oauth';
+import { getGoogleAuth } from './google-auth';
 
 /**
  * Search for an existing file by name in a folder.
@@ -31,7 +31,7 @@ export async function uploadToDrive(
   filename: string,
   folderId: string
 ): Promise<string> {
-  const auth = getDriveOAuthClient();
+  const auth = getGoogleAuth();
   const drive = google.drive({ version: 'v3', auth });
 
   // Check if file with same name already exists in the folder
