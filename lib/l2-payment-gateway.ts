@@ -96,6 +96,30 @@ const GATEWAYS: GatewayConfig[] = [
     dateCol: colLetterToIndex('T'),                               // T=19
     categoryCol: colLetterToIndex('S'),                           // S=18
   },
+  {
+    label: 'Pine Labs',
+    tabName: 'Pine Labs',
+    phoneCols: [colLetterToIndex('X'), colLetterToIndex('Y')],   // X=23 (Phone No), Y=24 (Alter No)
+    amountCol: colLetterToIndex('V'),                             // V=21
+    dateCol: colLetterToIndex('AB'),                              // AB=27 (Date)
+    categoryCol: colLetterToIndex('W'),                           // W=22
+  },
+  {
+    label: 'Paytm',
+    tabName: 'Paytm',
+    phoneCols: [colLetterToIndex('M'), colLetterToIndex('Q'), colLetterToIndex('R')], // M=12, Q=16, R=17
+    amountCol: colLetterToIndex('O'),                             // O=14
+    dateCol: colLetterToIndex('E'),                               // E=4 (Transaction_Date)
+    categoryCol: colLetterToIndex('P'),                           // P=15
+  },
+  {
+    label: 'Easebuzz',
+    tabName: 'Easebuzz',
+    phoneCols: [colLetterToIndex('E')],                           // E=4 (Customer Phone)
+    amountCol: colLetterToIndex('B'),                             // B=1
+    dateCol: colLetterToIndex('F'),                               // F=5 (Date of Transaction)
+    categoryCol: colLetterToIndex('G'),                           // G=6
+  },
 ];
 
 // ─── Phone normalization (same as tracking-sheet.ts) ────────────────────────
