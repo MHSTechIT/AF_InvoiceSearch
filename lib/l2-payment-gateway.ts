@@ -269,7 +269,7 @@ export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch
     const d = new Date(s);
     return isNaN(d.getTime()) ? 0 : d.getTime();
   };
-  allMatches.sort((a, b) => parseDate(b.date) - parseDate(a.date));
+  allMatches.sort((a, b) => parseDate(a.date) - parseDate(b.date));
 
   return allMatches;
 }
