@@ -32,29 +32,38 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Determine correct Drive folder from tracking sheet
+  let folderId: string;
+  let folderName: string;
   let folderResult;
+
   try {
     folderResult = await determineFolder(data.phoneNo);
+    if (folderResult) {
+      folderId = folderResult.folderId;
+      folderName = folderResult.folderName;
+    } else {
+      // Fallback: use batch from invoice data to pick folder
+      const isGold = (data.batch || '').toLowerCase().includes('gold');
+      folderId = isGold
+        ? process.env.DRIVE_FOLDER_GOLD_ID!
+        : process.env.DRIVE_FOLDER_DIAMOND_ID!;
+      folderName = isGold ? 'Gold' : 'Diamond';
+    }
   } catch (err) {
-    console.error('Folder determination error:', err);
-    return NextResponse.json(
-      { error: 'Failed to access tracking sheet: ' + (err as Error).message },
-      { status: 500 }
-    );
-  }
-
-  if (!folderResult) {
-    return NextResponse.json(
-      { error: `Phone number ${data.phoneNo} not found in Diamond or Gold tracking sheet. Please check the tracking sheet.` },
-      { status: 404 }
-    );
+    console.warn('Folder determination error, using fallback:', (err as Error).message);
+    // Fallback: use batch from invoice data
+    const isGold = (data.batch || '').toLowerCase().includes('gold');
+    folderId = isGold
+      ? process.env.DRIVE_FOLDER_GOLD_ID!
+      : process.env.DRIVE_FOLDER_DIAMOND_ID!;
+    folderName = isGold ? 'Gold' : 'Diamond';
   }
 
   // 3. Upload PDF to Drive
-  const filename = `${data.invoiceNumber.replace(/\//g, '-')}.pdf`;
+  const filename = `${data.invoiceNumber.replace(/\//g, '-')} - ${data.clientName}.pdf`;
   let fileUrl: string;
   try {
-    fileUrl = await uploadToDrive(pdfBuffer, filename, folderResult.folderId);
+    fileUrl = await uploadToDrive(pdfBuffer, filename, folderId);
   } catch (err) {
     console.error('Drive upload error:', err);
     return NextResponse.json(
@@ -64,17 +73,18 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Save URL back to tracking sheet (non-blocking on failure)
-  try {
-    await updateInvoiceUrl(folderResult, fileUrl);
-  } catch (err) {
-    console.warn('Sheet URL update failed (non-critical):', err);
-    // Still return success — file is uploaded, URL saved is optional
+  if (folderResult) {
+    try {
+      await updateInvoiceUrl(folderResult, fileUrl);
+    } catch (err) {
+      console.warn('Sheet URL update failed (non-critical):', err);
+    }
   }
 
   return NextResponse.json({
     success: true,
     fileUrl,
-    folder: folderResult.folderName,
+    folder: folderName,
     filename,
   });
 }
