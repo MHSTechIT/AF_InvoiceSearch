@@ -4,7 +4,7 @@ import { findByInvoiceNumber, findByPhoneNumber, toSummary } from '@/lib/sheets'
 import { buildInvoiceData } from '@/lib/invoice-calc';
 
 function isPhoneNumber(query: string): boolean {
-  return /^\d{10}$/.test(query.trim());
+  return /^\d{10,12}$/.test(query.trim());
 }
 
 export async function GET(req: NextRequest) {

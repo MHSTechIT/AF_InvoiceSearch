@@ -8,9 +8,9 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const phone = req.nextUrl.searchParams.get('phone') ?? '';
-  if (!/^\d{10}$/.test(phone.trim())) {
+  if (!/^\d{10,12}$/.test(phone.trim())) {
     return NextResponse.json(
-      { error: 'Please enter a valid 10-digit phone number' },
+      { error: 'Please enter a valid 10 to 12-digit phone number' },
       { status: 400 }
     );
   }

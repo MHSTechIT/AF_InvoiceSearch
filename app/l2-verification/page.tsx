@@ -231,7 +231,7 @@ export default function L2VerificationPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-base font-semibold text-gray-700 mb-1">L2 Payment Verification</h2>
           <p className="text-xs text-gray-400 mb-4">
-            Enter a 10-digit mobile number to search student record and verify payments across all gateways
+            Enter a mobile number (10-12 digits) to search student record and verify payments across all gateways
           </p>
           <form onSubmit={handleSearch} className="flex gap-3">
             <div className="relative flex-1">
@@ -240,10 +240,10 @@ export default function L2VerificationPage() {
                 type="text"
                 value={phone}
                 onChange={e => { setPhone(e.target.value); }}
-                placeholder="Enter 10-digit mobile number"
+                placeholder="Enter mobile number (10-12 digits)"
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
                 required
-                maxLength={10}
+                maxLength={12}
               />
             </div>
             <button

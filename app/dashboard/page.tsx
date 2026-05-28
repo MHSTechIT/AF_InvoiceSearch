@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const [emailMsg, setEmailMsg] = useState('');
   const [driveResult, setDriveResult] = useState<{ url: string; folder: string; urlSaved: boolean } | null>(null);
 
-  const isPhone = (q: string) => /^\d{10}$/.test(q.trim());
+  const isPhone = (q: string) => /^\d{10,12}$/.test(q.trim());
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -155,7 +155,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
           <h2 className="text-base font-semibold text-gray-700 mb-1">Search Invoice</h2>
           <p className="text-xs text-gray-400 mb-4">
-            Enter an Invoice Number <span className="font-mono bg-gray-100 px-1 rounded">MHS/DD/033</span> or a 10-digit Mobile Number
+            Enter an Invoice Number <span className="font-mono bg-gray-100 px-1 rounded">MHS/DD/033</span> or a 10-12 digit Mobile Number
           </p>
           <form onSubmit={handleSearch} className="flex gap-3">
             <div className="relative flex-1">

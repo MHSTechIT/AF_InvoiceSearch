@@ -8,7 +8,7 @@ const DIAMOND_FOLDER_ID = process.env.DRIVE_FOLDER_DIAMOND_ID!;
 const GOLD_FOLDER_ID = process.env.DRIVE_FOLDER_GOLD_ID!;
 
 function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '').slice(-10);
+  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '');
 }
 
 function gidToSheetName(gid: string, sheets: { properties: { sheetId: number; title: string } }[]): string | null {
@@ -58,7 +58,7 @@ async function findPhoneInTab(
   const target = normalizePhone(phone);
   for (let i = 1; i < rows.length; i++) {
     const cell = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
-    if (cell === target) {
+    if (cell === target || cell.slice(-10) === target.slice(-10)) {
       return { found: true, rowIndex: i, sheetRange: range, headers: rows[0] };
     }
   }
@@ -76,8 +76,11 @@ export interface FolderResult {
 }
 
 export async function determineFolder(phone: string): Promise<FolderResult | null> {
-  // Check Diamond tab first
-  const diamond = await findPhoneInTab(phone, DIAMOND_GID);
+  const [diamond, gold] = await Promise.all([
+    findPhoneInTab(phone, DIAMOND_GID),
+    findPhoneInTab(phone, GOLD_GID),
+  ]);
+
   if (diamond.found) {
     return {
       folderId: DIAMOND_FOLDER_ID,
@@ -89,8 +92,6 @@ export async function determineFolder(phone: string): Promise<FolderResult | nul
     };
   }
 
-  // Check Gold tab
-  const gold = await findPhoneInTab(phone, GOLD_GID);
   if (gold.found) {
     return {
       folderId: GOLD_FOLDER_ID,
@@ -178,7 +179,7 @@ export async function writeL2InvoiceToTrackingSheet(
     const target = normalizePhone(phone);
     for (let i = 1; i < rows.length; i++) {
       const cell = normalizePhone(String(rows[i]?.[phoneColIdx] ?? ''));
-      if (cell !== target) continue;
+      if (cell !== target && cell.slice(-10) !== target.slice(-10)) continue;
 
       const rowNum = i + 1; // 1-based for Sheets API
 

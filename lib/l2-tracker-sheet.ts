@@ -19,7 +19,7 @@ const L2_TABS: L2TabConfig[] = [
 
 // ─── Phone normalization (same as tracking-sheet.ts) ────────────────────────
 function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '').slice(-10);
+  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '');
 }
 
 // ─── Find a student by phone in a specific tab ──────────────────────────────
@@ -82,7 +82,7 @@ async function findStudentInTab(
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const cellPhone = normalizePhone(String(row[phoneColIdx] ?? ''));
-    if (cellPhone !== target) continue;
+    if (cellPhone !== target && cellPhone.slice(-10) !== target.slice(-10)) continue;
 
     return {
       name: String(row[nameColIdx] ?? '').trim() || 'Unknown',
@@ -102,23 +102,28 @@ async function findStudentInTab(
   return null;
 }
 
-// ─── Find L2 student (checks all category tabs in order) ──────────────────
+// ─── Find L2 student (checks all category tabs in parallel) ─────────────────
 export async function findL2Student(phone: string): Promise<L2StudentRecord | null> {
-  const errors: string[] = [];
-  for (const tab of L2_TABS) {
-    try {
-      const student = await findStudentInTab(phone, tab.tabName, tab.batch);
-      if (student) return student;
-    } catch (err) {
-      const msg = (err as Error).message;
-      console.warn(`Failed to search tab "${tab.tabName}":`, msg);
-      errors.push(`${tab.tabName}: ${msg}`);
+  const results = await Promise.allSettled(
+    L2_TABS.map(tab => findStudentInTab(phone, tab.tabName, tab.batch))
+  );
+
+  // Return first successful match
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      return result.value;
     }
   }
-  // If ALL tabs failed with errors, throw so caller can return 500 instead of 404
+
+  // Check if ALL failed with errors
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map(r => r.reason?.message || 'Unknown error');
+
   if (errors.length === L2_TABS.length) {
     throw new Error(`All L2 tabs failed: ${errors.join('; ')}`);
   }
+
   return null;
 }
 
@@ -246,7 +251,7 @@ export async function findExistingInvoiceUrl(phone: string): Promise<string | nu
     const target = normalizePhone(phone);
     for (let i = 1; i < rows.length; i++) {
       const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
-      if (cellPhone === target) {
+      if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
         const url = String(rows[i][urlColIdx] ?? '').trim();
         return url || null;  // null if empty
       }
@@ -300,7 +305,7 @@ export async function writeInvoiceUrlToSheet3(
   const target = normalizePhone(phone);
   for (let i = 1; i < rows.length; i++) {
     const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
-    if (cellPhone === target) {
+    if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
       // Column P = index 15, 1-based row = i + 1
       const rowNum = i + 1;
       const cellRange = `'${tabTitle}'!P${rowNum}`;

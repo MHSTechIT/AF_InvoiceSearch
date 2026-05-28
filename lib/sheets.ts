@@ -28,7 +28,7 @@ const COL = {
 };
 
 function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '').slice(-10);
+  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '');
 }
 
 // ─── Build InvoiceRow from a sheet row ──────────────────────────────────────
@@ -103,7 +103,10 @@ export async function findByPhoneNumber(phone: string): Promise<InvoiceRow[]> {
   const allRows = await fetchAllL2Rows();
   const target = normalizePhone(phone);
   return allRows
-    .filter(r => normalizePhone(r.row.phoneNo) === target)
+    .filter(r => {
+      const cellNorm = normalizePhone(r.row.phoneNo);
+      return cellNorm === target || cellNorm.slice(-10) === target.slice(-10);
+    })
     .map(r => r.row);
 }
 

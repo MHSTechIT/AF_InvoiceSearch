@@ -124,7 +124,7 @@ const GATEWAYS: GatewayConfig[] = [
 
 // ─── Phone normalization (same as tracking-sheet.ts) ────────────────────────
 function normalizePhone(phone: string): string {
-  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '').slice(-10);
+  return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '');
 }
 
 // ─── Normalize date to "DD MMM YYYY" format ────────────────────────────────
@@ -222,7 +222,8 @@ async function searchGatewayTab(
     const phoneMatched = gateway.phoneCols.some(colIdx => {
       const cellValue = String(row[colIdx] ?? '').trim();
       if (!cellValue) return false;
-      return normalizePhone(cellValue) === target;
+      const cellNorm = normalizePhone(cellValue);
+      return cellNorm === target || cellNorm.slice(-10) === target.slice(-10);
     });
 
     if (!phoneMatched) continue;
@@ -239,7 +240,7 @@ async function searchGatewayTab(
     let matchedPhone = '';
     for (const colIdx of gateway.phoneCols) {
       const cell = String(row[colIdx] ?? '').trim();
-      if (cell && normalizePhone(cell) === target) {
+      if (cell && (normalizePhone(cell) === target || normalizePhone(cell).slice(-10) === target.slice(-10))) {
         matchedPhone = cell;
         break;
       }
@@ -260,7 +261,7 @@ async function searchGatewayTab(
 // ─── Search all gateways in parallel ────────────────────────────────────────
 export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch[]> {
   const target = normalizePhone(phone);
-  if (target.length !== 10) return [];
+  if (target.length < 10 || target.length > 12) return [];
 
   const results = await Promise.allSettled(
     GATEWAYS.map(gw => searchGatewayTab(gw, target))
