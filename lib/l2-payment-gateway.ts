@@ -252,6 +252,22 @@ export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch
     }
   }
 
+  // Sort by date (newest first)
+  allMatches.sort((a, b) => {
+    const parseDate = (s: string): number => {
+      if (!s) return 0;
+      const stripped = s.replace(/\s+\d{1,2}:\d{2}(:\d{2})?.*$/, '').trim();
+      // Try DD MMM YYYY (already normalized)
+      let d = new Date(stripped);
+      if (!isNaN(d.getTime())) return d.getTime();
+      // Try DD-MM-YYYY / DD/MM/YYYY
+      const dmy = stripped.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+      if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])).getTime();
+      return 0;
+    };
+    return parseDate(b.date) - parseDate(a.date);
+  });
+
   return allMatches;
 }
 
