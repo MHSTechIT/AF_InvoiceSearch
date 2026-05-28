@@ -253,20 +253,23 @@ export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch
   }
 
   // Sort by date (newest first)
-  allMatches.sort((a, b) => {
-    const parseDate = (s: string): number => {
-      if (!s) return 0;
-      const stripped = s.replace(/\s+\d{1,2}:\d{2}(:\d{2})?.*$/, '').trim();
-      // Try DD MMM YYYY (already normalized)
-      let d = new Date(stripped);
-      if (!isNaN(d.getTime())) return d.getTime();
-      // Try DD-MM-YYYY / DD/MM/YYYY
-      const dmy = stripped.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-      if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])).getTime();
-      return 0;
-    };
-    return parseDate(b.date) - parseDate(a.date);
-  });
+  const MONTHS: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const parseDate = (s: string): number => {
+    if (!s) return 0;
+    // Dates are normalized to "DD MMM YYYY" (e.g. "12 Apr 2026")
+    const m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (m) {
+      const mon = MONTHS[m[2].toLowerCase().slice(0, 3)];
+      if (mon !== undefined) return new Date(Number(m[3]), mon, Number(m[1])).getTime();
+    }
+    // Fallback
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  };
+  allMatches.sort((a, b) => parseDate(b.date) - parseDate(a.date));
 
   return allMatches;
 }
