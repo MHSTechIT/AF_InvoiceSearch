@@ -275,9 +275,26 @@ export default function L2VerificationPage() {
         </div>
 
         {/* ── Student Card + Payments ─────────────────────────────────────── */}
-        {student && (
+        {(student || payments.length > 0) && (
           <>
-            <L2StudentCard student={student} existingInvoiceUrl={existingInvoiceUrl} />
+            {student ? (
+              <L2StudentCard student={student} existingInvoiceUrl={existingInvoiceUrl} />
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                      Student not found in L2 Tracker
+                    </p>
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      Phone {phone} is not in the Diamond or Gold tracker sheet, but payment records were found in the gateways below.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <L2PaymentTable
               payments={payments}
               selectedIndex={null}
@@ -290,7 +307,7 @@ export default function L2VerificationPage() {
             />
 
             {/* Invoice Number from Sheet */}
-            {student.existingInvoiceNumber && !editing && !invoiceResult && (
+            {student && student.existingInvoiceNumber && !editing && !invoiceResult && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                 <p className="text-sm text-blue-800">
                   <span className="font-semibold">Invoice #:</span>{' '}
@@ -303,7 +320,7 @@ export default function L2VerificationPage() {
             )}
 
             {/* Edit Invoice Form */}
-            {editing && (
+            {student && editing && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-4">
                 <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
                   <span className="text-lg">✏️</span> Edit Invoice Details
@@ -355,8 +372,8 @@ export default function L2VerificationPage() {
               </div>
             )}
 
-            {/* Action Buttons */}
-            {!editing && (
+            {/* Action Buttons — only show when student exists in tracker */}
+            {student && !editing && (
               <div className="flex justify-end gap-3 flex-wrap">
                 {/* Update Payments button — show before update is done */}
                 {payments.length > 0 && !updateResult && (
@@ -397,7 +414,7 @@ export default function L2VerificationPage() {
             )}
 
             {/* No Invoice Number Warning */}
-            {updateResult && !invoiceResult && !editing && !student.existingInvoiceNumber && (
+            {student && updateResult && !invoiceResult && !editing && !student.existingInvoiceNumber && (
               <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-2.5">
                 ⚠️ No invoice number found in column M of the tracker sheet. Please add the invoice number to the sheet first, or click Edit to enter manually.
                 <button

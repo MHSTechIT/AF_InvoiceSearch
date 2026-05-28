@@ -31,15 +31,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!student) {
+  // If student not found AND no payments found, return 404
+  if (!student && (!payments || payments.length === 0)) {
     return NextResponse.json(
-      { error: `Phone number ${phone} not found in L2 Diamond or Gold Accounts` },
+      { error: `Phone number ${phone} not found in L2 Diamond or Gold Accounts and no payment records found` },
       { status: 404 }
     );
   }
 
   return NextResponse.json({
-    student,
+    student: student || null,   // null if not in tracker
     payments,
     existingInvoiceUrl,   // null if no invoice generated yet
   });
