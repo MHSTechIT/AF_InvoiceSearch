@@ -4,7 +4,8 @@ import { renderToBuffer } from '@react-pdf/renderer';
 import { InvoicePDFDocument } from '@/components/InvoicePDFDocument';
 import { InvoiceData } from '@/lib/types';
 import { uploadToDrive } from '@/lib/drive';
-import { determineFolder, updateInvoiceUrl } from '@/lib/tracking-sheet';
+import { determineFolder, updateInvoiceUrl, writeL2InvoiceToTrackingSheet } from '@/lib/tracking-sheet';
+import { writeInvoiceUrlToSheet3 } from '@/lib/l2-tracker-sheet';
 import React from 'react';
 
 export async function POST(req: NextRequest) {
@@ -72,13 +73,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 4. Save URL back to tracking sheet (non-blocking on failure)
+  // 4. Save URL back to tracking sheet(s) — non-blocking on failure
+  let urlSaved = false;
+
+  // Try main tracking sheet first
   if (folderResult) {
     try {
       await updateInvoiceUrl(folderResult, fileUrl);
+      urlSaved = true;
     } catch (err) {
-      console.warn('Sheet URL update failed (non-critical):', err);
+      console.warn('Main tracking sheet URL update failed:', err);
     }
+  }
+
+  // Also try L2 confirmation sheet (Sheet 3) and L2 tracking sheet
+  try {
+    await writeInvoiceUrlToSheet3(data.phoneNo, fileUrl);
+    urlSaved = true;
+  } catch (err) {
+    console.warn('L2 Sheet 3 URL write failed:', err);
+  }
+
+  try {
+    await writeL2InvoiceToTrackingSheet(data.phoneNo, fileUrl, data.invoiceNumber, data.invoiceDate);
+    urlSaved = true;
+  } catch (err) {
+    console.warn('L2 tracking sheet URL write failed:', err);
   }
 
   return NextResponse.json({
@@ -86,5 +106,6 @@ export async function POST(req: NextRequest) {
     fileUrl,
     folder: folderName,
     filename,
+    urlSaved,
   });
 }

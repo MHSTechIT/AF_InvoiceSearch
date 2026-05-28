@@ -15,7 +15,7 @@ export default function DashboardPage() {
   const [driveLoading, setDriveLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailMsg, setEmailMsg] = useState('');
-  const [driveResult, setDriveResult] = useState<{ url: string; folder: string } | null>(null);
+  const [driveResult, setDriveResult] = useState<{ url: string; folder: string; urlSaved: boolean } | null>(null);
 
   const isPhone = (q: string) => /^\d{10}$/.test(q.trim());
 
@@ -108,7 +108,7 @@ export default function DashboardPage() {
     setDriveLoading(false);
     const d = await res.json();
     if (!res.ok) { setError(d.error || 'Drive upload failed'); return; }
-    setDriveResult({ url: d.fileUrl, folder: d.folder });
+    setDriveResult({ url: d.fileUrl, folder: d.folder, urlSaved: d.urlSaved });
   }
 
   async function handleLogout() {
@@ -194,7 +194,7 @@ export default function DashboardPage() {
           )}
           {driveResult && (
             <div className="mt-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-lg px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
-              <span>☁️ Uploaded to <strong>L2 {driveResult.folder}</strong> folder &amp; URL saved to tracking sheet</span>
+              <span>☁️ Uploaded to <strong>{driveResult.folder}</strong> folder{driveResult.urlSaved ? ' & URL saved to tracking sheet' : ''}</span>
               <a
                 href={driveResult.url}
                 target="_blank"
