@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { InvoicePDFDocument } from '@/components/InvoicePDFDocument';
 import { PaymentMatch } from '@/lib/types';
-import { findL2Student, getNextL2InvoiceNumber, writeInvoiceToTracker, writeInvoiceUrlToSheet3, writePaymentsToTracker } from '@/lib/l2-tracker-sheet';
+import { findL2Student, writeInvoiceToTracker, writeInvoiceUrlToSheet3, writePaymentsToTracker } from '@/lib/l2-tracker-sheet';
 import { buildL2InvoiceData } from '@/lib/l2-invoice-calc';
 import { determineFolder, writeL2InvoiceToTrackingSheet } from '@/lib/tracking-sheet';
 import { uploadToDrive } from '@/lib/drive';
@@ -14,10 +14,12 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  const { phone, selectedPayment, allPayments } = body as {
+  const { phone, selectedPayment, allPayments, editInvoiceNumber, editInvoiceDate } = body as {
     phone: string;
     selectedPayment: PaymentMatch;
     allPayments?: PaymentMatch[];
+    editInvoiceNumber?: string;
+    editInvoiceDate?: string;
   };
 
   if (!phone || !selectedPayment) {
@@ -33,17 +35,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Generate next invoice number
-  let invoiceNumber: string;
-  try {
-    invoiceNumber = await getNextL2InvoiceNumber();
-  } catch (err) {
-    console.error('Invoice number generation error:', err);
-    return NextResponse.json({ error: 'Failed to generate invoice number' }, { status: 500 });
+  // 2. Get invoice number from sheet column M (or from edit override)
+  const invoiceNumber = editInvoiceNumber?.trim() || student.existingInvoiceNumber?.trim();
+  if (!invoiceNumber) {
+    return NextResponse.json(
+      { error: 'No invoice number found in column M of tracker sheet. Please add the invoice number to the sheet first.' },
+      { status: 400 }
+    );
   }
 
-  // 4. Build invoice data (pass allPayments to split app fees + course fees)
-  const invoiceData = buildL2InvoiceData(student, selectedPayment, invoiceNumber, allPayments);
+  // 3. Build invoice data (pass allPayments to split app fees + course fees)
+  const invoiceData = buildL2InvoiceData(student, selectedPayment, invoiceNumber, allPayments, editInvoiceDate);
 
   // 5. Generate PDF
   let pdfBuffer: Buffer;

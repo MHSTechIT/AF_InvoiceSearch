@@ -46,15 +46,17 @@ async function findStudentInTab(
   const headers = rows[0].map((h: string) => h.trim().toLowerCase());
   console.log(`[L2] Tab "${tabName}" headers:`, rows[0]);
 
-  // Find phone column
-  const phoneColIdx = headers.findIndex(
+  // Find phone column by header, fallback to column F (index 5) if header is blank
+  let phoneColIdx = headers.findIndex(
     (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile' || h === 'mobile number'
   );
   if (phoneColIdx === -1) {
-    console.warn(`[L2] ❌ Phone column not found in tab "${tabName}". Headers:`, rows[0]);
-    return null;
+    // Fallback: column F (index 5) is consistently the phone column in L2 tracker sheets
+    phoneColIdx = 5;
+    console.log(`[L2] Phone column header not found in tab "${tabName}", using fallback col F (index 5)`);
+  } else {
+    console.log(`[L2] Phone column found at index ${phoneColIdx} (header: "${rows[0][phoneColIdx]}")`);
   }
-  console.log(`[L2] Phone column found at index ${phoneColIdx} (header: "${rows[0][phoneColIdx]}")`);
 
   // Find other columns by header
   const nameColIdx = headers.findIndex(

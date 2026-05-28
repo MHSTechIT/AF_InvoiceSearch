@@ -31,6 +31,11 @@ export default function L2VerificationPage() {
     invoiceAmount: string;
   } | null>(null);
 
+  // ─── Edit Phase ───────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState('');
+  const [editInvoiceDate, setEditInvoiceDate] = useState('');
+
   // ─── Combine all payments into one for invoice (total amount) ───────────
   function getCombinedPayment(): PaymentMatch | null {
     if (payments.length === 0) return null;
@@ -121,14 +126,19 @@ export default function L2VerificationPage() {
     setError('');
 
     try {
+      const payload: Record<string, unknown> = {
+        phone: student.phone,
+        selectedPayment,
+        allPayments: payments,
+      };
+      // Pass edit overrides if editing
+      if (editing && editInvoiceNumber) payload.editInvoiceNumber = editInvoiceNumber;
+      if (editing && editInvoiceDate) payload.editInvoiceDate = editInvoiceDate;
+
       const res = await fetch('/api/l2/generate-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: student.phone,
-          selectedPayment,
-          allPayments: payments,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -147,11 +157,25 @@ export default function L2VerificationPage() {
         invoiceAmount: data.invoiceAmount,
       });
       setExistingInvoiceUrl(data.driveUrl);
+      setEditing(false);
     } catch {
       setError('Network error during invoice generation');
     } finally {
       setGenerating(false);
     }
+  }
+
+  // ─── Start editing invoice ────────────────────────────────────────────────
+  function handleEditInvoice() {
+    if (invoiceResult) {
+      setEditInvoiceNumber(invoiceResult.invoiceNumber);
+      setEditInvoiceDate(invoiceResult.invoiceDate);
+    } else if (student) {
+      setEditInvoiceNumber(student.existingInvoiceNumber || '');
+      setEditInvoiceDate('');
+    }
+    setEditing(true);
+    setInvoiceResult(null);
   }
 
   // ─── Reset to new search ──────────────────────────────────────────────────
@@ -162,6 +186,9 @@ export default function L2VerificationPage() {
     setExistingInvoiceUrl(null);
     setUpdateResult(null);
     setInvoiceResult(null);
+    setEditing(false);
+    setEditInvoiceNumber('');
+    setEditInvoiceDate('');
     setError('');
   }
 
@@ -255,46 +282,132 @@ export default function L2VerificationPage() {
               payments={payments}
               selectedIndex={null}
               onSelect={() => {}}
+              onPaymentEdited={(idx, updated) => {
+                const newPayments = [...payments];
+                newPayments[idx] = updated;
+                setPayments(newPayments);
+              }}
             />
 
-            {/* Action Buttons */}
-            <div className="flex justify-end gap-3 flex-wrap">
-              {/* Update Payments button — show before update is done */}
-              {payments.length > 0 && !updateResult && (
-                <button
-                  onClick={handleUpdatePayments}
-                  disabled={updating}
-                  className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-8 py-3 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
-                >
-                  {updating ? (
-                    <>
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      Updating Sheet...
-                    </>
-                  ) : (
-                    'Update Payments to Sheet'
+            {/* Invoice Number from Sheet */}
+            {student.existingInvoiceNumber && !editing && !invoiceResult && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-sm text-blue-800">
+                  <span className="font-semibold">Invoice #:</span>{' '}
+                  <span className="font-mono">{student.existingInvoiceNumber}</span>
+                  {student.existingInvoiceDate && (
+                    <span className="ml-4 text-blue-600">Date: {student.existingInvoiceDate}</span>
                   )}
-                </button>
-              )}
+                </p>
+              </div>
+            )}
 
-              {/* Generate Invoice button — show after payment update */}
-              {updateResult && !invoiceResult && (
+            {/* Edit Invoice Form */}
+            {editing && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-4">
+                <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                  <span className="text-lg">✏️</span> Edit Invoice Details
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Invoice Number</label>
+                    <input
+                      type="text"
+                      value={editInvoiceNumber}
+                      onChange={e => setEditInvoiceNumber(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      placeholder="MHS/DD/XXX"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Invoice Date</label>
+                    <input
+                      type="text"
+                      value={editInvoiceDate}
+                      onChange={e => setEditInvoiceDate(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      placeholder="26 May 2026"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => { setEditing(false); }}
+                    className="border border-gray-300 text-gray-600 px-5 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleGenerateInvoice}
+                    disabled={generating || !editInvoiceNumber.trim()}
+                    className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  >
+                    {generating ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        Regenerating...
+                      </>
+                    ) : (
+                      'Regenerate Invoice'
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            {!editing && (
+              <div className="flex justify-end gap-3 flex-wrap">
+                {/* Update Payments button — show before update is done */}
+                {payments.length > 0 && !updateResult && (
+                  <button
+                    onClick={handleUpdatePayments}
+                    disabled={updating}
+                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-8 py-3 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  >
+                    {updating ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        Updating Sheet...
+                      </>
+                    ) : (
+                      'Update Payments to Sheet'
+                    )}
+                  </button>
+                )}
+
+                {/* Generate Invoice button — show after payment update */}
+                {updateResult && !invoiceResult && (
+                  <button
+                    onClick={handleGenerateInvoice}
+                    disabled={generating || !student.existingInvoiceNumber}
+                    className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-500 text-white px-8 py-3 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  >
+                    {generating ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                        Generating Invoice...
+                      </>
+                    ) : (
+                      'Generate Invoice & Upload to Drive'
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* No Invoice Number Warning */}
+            {updateResult && !invoiceResult && !editing && !student.existingInvoiceNumber && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-2.5">
+                ⚠️ No invoice number found in column M of the tracker sheet. Please add the invoice number to the sheet first, or click Edit to enter manually.
                 <button
-                  onClick={handleGenerateInvoice}
-                  disabled={generating}
-                  className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-500 text-white px-8 py-3 rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
+                  onClick={handleEditInvoice}
+                  className="ml-2 text-amber-800 font-semibold underline hover:text-amber-900"
                 >
-                  {generating ? (
-                    <>
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      Generating Invoice...
-                    </>
-                  ) : (
-                    'Generate Invoice & Upload to Drive'
-                  )}
+                  Enter Manually
                 </button>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Invoice Success Card */}
             {invoiceResult && (
@@ -329,9 +442,15 @@ export default function L2VerificationPage() {
               </div>
             )}
 
-            {/* New Search — show after invoice generated */}
+            {/* Edit + New Search — show after invoice generated */}
             {invoiceResult && (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={handleEditInvoice}
+                  className="flex items-center gap-2 border border-amber-300 text-amber-700 px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-50 transition"
+                >
+                  ✏️ Edit & Regenerate
+                </button>
                 <button
                   onClick={handleNewSearch}
                   className="flex items-center gap-2 border border-gray-300 text-gray-600 px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition"

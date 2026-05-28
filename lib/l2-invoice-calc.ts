@@ -12,7 +12,8 @@ export function buildL2InvoiceData(
   student: L2StudentRecord,
   payment: PaymentMatch,
   invoiceNumber: string,
-  allPayments?: PaymentMatch[]
+  allPayments?: PaymentMatch[],
+  overrideDate?: string
 ): InvoiceData {
   // If allPayments provided, sum all amounts and separate app fees
   let totalAmount: number;
@@ -37,13 +38,18 @@ export function buildL2InvoiceData(
   const cgst = parseFloat((baseValue * 0.09).toFixed(2));
   const sgst = parseFloat((baseValue * 0.09).toFixed(2));
 
-  // Format today's date as DD MMM YYYY (e.g., "14 May 2026")
-  const today = new Date();
-  const invoiceDate = today.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  // Use override date if provided, otherwise format today's date as DD MMM YYYY
+  let invoiceDate: string;
+  if (overrideDate?.trim()) {
+    invoiceDate = overrideDate.trim();
+  } else {
+    const today = new Date();
+    invoiceDate = today.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
 
   return {
     invoiceNumber,

@@ -106,13 +106,13 @@ function normalizePhone(phone: string): string {
 // ─── Normalize date to "DD MMM YYYY" format ────────────────────────────────
 function normalizeDate(raw: string): string {
   if (!raw || !raw.trim()) return '';
-  const trimmed = raw.trim();
 
-  // Try parsing common formats
-  // "11-05-2026", "11/05/2026", "2026-05-11", "11-May-2026", "12April2026", etc.
+  // Strip time component if present (e.g. "26/05/2026 00:00:00" → "26/05/2026")
+  const trimmed = raw.trim().replace(/\s+\d{1,2}:\d{2}(:\d{2})?.*$/, '').trim();
+
   let d: Date | null = null;
 
-  // Handle "12April2026" — no separator between day, month name, year
+  // Handle "12April2026" or "12 April 2026" — day + month name + year
   const noSepMatch = trimmed.match(/^(\d{1,2})\s*([A-Za-z]+)\s*(\d{4})$/);
   if (noSepMatch) {
     d = new Date(`${noSepMatch[2]} ${noSepMatch[1]}, ${noSepMatch[3]}`);
@@ -139,13 +139,13 @@ function normalizeDate(raw: string): string {
     d = new Date(trimmed);
   }
 
-  if (!d || isNaN(d.getTime())) return trimmed; // return original if unparseable
+  if (!d || isNaN(d.getTime())) return raw.trim(); // return original if unparseable
 
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  // Format as "DD MMM YYYY" (e.g. "28 May 2026")
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = d.toLocaleDateString('en-IN', { month: 'short' });
+  const year = d.getFullYear();
+  return `${day} ${month} ${year}`;
 }
 
 // ─── Check if a category value is an L2 category ───────────────────────────
