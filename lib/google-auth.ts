@@ -20,3 +20,24 @@ export function getGoogleAuth() {
 
   return cachedAuth;
 }
+
+// ─── Retry wrapper for Google API calls (handles quota/rate limits) ─────────
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 1000
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const message = (err as Error)?.message || '';
+      const isQuotaError = message.includes('Quota exceeded') || message.includes('RATE_LIMIT') || message.includes('rate limit');
+      if (!isQuotaError || attempt === maxRetries) throw err;
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 500;
+      console.warn(`[Retry] Quota exceeded, waiting ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Unreachable');
+}

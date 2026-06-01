@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { getGoogleAuth } from './google-auth';
+import { getGoogleAuth, withRetry } from './google-auth';
 import { L2StudentRecord } from './types';
 // colIndexToLetter available from './l2-payment-gateway' if needed
 
@@ -34,10 +34,12 @@ async function findStudentInTab(
   const range = `'${tabName}'!A:Z`;
   console.log(`[L2] Searching tab "${tabName}" in sheet ${L2_TRACKER_SHEET_ID} for phone ${phone}`);
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: L2_TRACKER_SHEET_ID,
-    range,
-  });
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: L2_TRACKER_SHEET_ID,
+      range,
+    })
+  );
 
   const rows = res.data.values ?? [];
   console.log(`[L2] Tab "${tabName}": ${rows.length} rows found`);
@@ -145,30 +147,19 @@ export async function writePaymentsToTracker(
   const sheets = google.sheets({ version: 'v4', auth });
   const rowNum = rowIndex + 1; // 1-based
 
-  // Separate application fees (₹999) from regular payments
-  const appFeePayments: typeof payments = [];
-  const regularPayments: typeof payments = [];
-
-  for (const p of payments) {
-    const numericAmt = parseFloat(p.amount.replace(/[^0-9.]/g, ''));
-    if (numericAmt === 999) {
-      appFeePayments.push(p);
-    } else {
-      regularPayments.push(p);
-    }
-  }
+  // First payment (by date order) = Application Fees, rest = 1st–4th Payment
+  // Payments are already sorted oldest-first from the gateway search
+  const appFee = payments[0];
+  const regularPayments = payments.slice(1);
 
   // Build the row data: P through AD (15 cells)
   // [AppFee_Mode, AppFee_Date, AppFee_Amt, 1st_Mode, 1st_Date, 1st_Amt, 2nd_Mode, 2nd_Date, 2nd_Amt, 3rd_Mode, 3rd_Date, 3rd_Amt, 4th_Mode, 4th_Date, 4th_Amt]
   const rowData: string[] = new Array(15).fill('');
 
-  // Application Fees (first ₹999 payment)
-  if (appFeePayments.length > 0) {
-    const af = appFeePayments[0];
-    rowData[0] = af.gateway;   // P: Mode
-    rowData[1] = af.date;      // Q: Date
-    rowData[2] = af.amount.replace(/[^0-9.]/g, ''); // R: Amount
-  }
+  // Application Fees (first received payment)
+  rowData[0] = appFee.gateway;   // P: Mode
+  rowData[1] = appFee.date;      // Q: Date
+  rowData[2] = appFee.amount.replace(/[^0-9.]/g, ''); // R: Amount
 
   // 1st through 4th Payment (slots at offset 3, 6, 9, 12)
   for (let i = 0; i < Math.min(regularPayments.length, 4); i++) {

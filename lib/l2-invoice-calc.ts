@@ -4,7 +4,7 @@ const GST_RATE = 0.18; // 9% CGST + 9% SGST
 
 /**
  * Build InvoiceData from an L2 student record and all verified payments.
- * Separates ₹999 application fees from course membership fees.
+ * First payment (by date) = application fees, rest = course membership fees.
  * Uses the same GST calculation as the existing invoice-calc.ts.
  * Output is fully compatible with InvoicePDFDocument and InvoicePreview.
  */
@@ -22,11 +22,11 @@ export function buildL2InvoiceData(
   if (allPayments && allPayments.length > 0) {
     totalAmount = 0;
     for (const p of allPayments) {
-      const amt = parseFloat(p.amount.replace(/[^0-9.]/g, '')) || 0;
-      if (amt === 999) {
-        appFeeAmount += amt;
-      }
-      totalAmount += amt;
+      totalAmount += parseFloat(p.amount.replace(/[^0-9.]/g, '')) || 0;
+    }
+    // First payment (by date order, oldest first) is the application fee
+    if (allPayments.length > 0) {
+      appFeeAmount = parseFloat(allPayments[0].amount.replace(/[^0-9.]/g, '')) || 0;
     }
   } else {
     // Fallback: single payment

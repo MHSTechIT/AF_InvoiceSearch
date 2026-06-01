@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { getGoogleAuth } from './google-auth';
+import { getGoogleAuth, withRetry } from './google-auth';
 import { PaymentMatch } from './types';
 
 const L2_ACCOUNTS_SHEET_ID = process.env.L2_ACCOUNTS_SHEET_ID!;
@@ -195,10 +195,12 @@ async function searchGatewayTab(
 
   let rows: string[][];
   try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: L2_ACCOUNTS_SHEET_ID,
-      range,
-    });
+    const res = await withRetry(() =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: L2_ACCOUNTS_SHEET_ID,
+        range,
+      })
+    );
     rows = (res.data.values ?? []) as string[][];
   } catch (err) {
     console.warn(`⚠ Failed to read gateway tab "${gateway.tabName}":`, (err as Error).message);
@@ -258,18 +260,25 @@ async function searchGatewayTab(
   return matches;
 }
 
-// ─── Search all gateways in parallel ────────────────────────────────────────
+// ─── Search gateways in batches (avoid API quota limits) ───────────────────
 export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch[]> {
   const target = normalizePhone(phone);
   if (target.length < 10 || target.length > 12) return [];
 
-  const results = await Promise.allSettled(
-    GATEWAYS.map(gw => searchGatewayTab(gw, target))
-  );
+  // Search in batches of 5 to avoid hitting Sheets API quota (60 reads/min)
+  const BATCH_SIZE = 5;
+  const allResults: PromiseSettledResult<PaymentMatch[]>[] = [];
+  for (let i = 0; i < GATEWAYS.length; i += BATCH_SIZE) {
+    const batch = GATEWAYS.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map(gw => searchGatewayTab(gw, target))
+    );
+    allResults.push(...batchResults);
+  }
 
   const allMatches: PaymentMatch[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
+  for (let i = 0; i < allResults.length; i++) {
+    const result = allResults[i];
     if (result.status === 'fulfilled') {
       allMatches.push(...result.value);
     } else {

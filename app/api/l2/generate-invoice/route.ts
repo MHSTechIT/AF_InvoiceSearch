@@ -5,7 +5,7 @@ import { InvoicePDFDocument } from '@/components/InvoicePDFDocument';
 import { PaymentMatch } from '@/lib/types';
 import { findL2Student, writeInvoiceToTracker, writeInvoiceUrlToSheet3, writePaymentsToTracker } from '@/lib/l2-tracker-sheet';
 import { buildL2InvoiceData } from '@/lib/l2-invoice-calc';
-import { determineFolder, writeL2InvoiceToTrackingSheet } from '@/lib/tracking-sheet';
+import { writeL2InvoiceToTrackingSheet } from '@/lib/tracking-sheet';
 import { uploadToDrive } from '@/lib/drive';
 import React from 'react';
 
@@ -57,32 +57,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'PDF generation failed' }, { status: 500 });
   }
 
-  // 6. Determine correct Drive folder
-  //    First try main tracking sheet; fall back to batch-based folder mapping
-  let folderId: string;
-  let folderName: string;
-  try {
-    const folderResult = await determineFolder(phone);
-    if (folderResult) {
-      folderId = folderResult.folderId;
-      folderName = folderResult.folderName;
-    } else {
-      // Fallback: use student batch to pick folder
-      const isGold = student.batch === 'Gold';
-      folderId = isGold
-        ? process.env.DRIVE_FOLDER_GOLD_ID!
-        : process.env.DRIVE_FOLDER_DIAMOND_ID!;
-      folderName = isGold ? 'Gold' : 'Diamond';
-    }
-  } catch (err) {
-    console.error('Folder determination error:', err);
-    // Last resort fallback: use batch
-    const isGold = student.batch === 'Gold';
-    folderId = isGold
-      ? process.env.DRIVE_FOLDER_GOLD_ID!
-      : process.env.DRIVE_FOLDER_DIAMOND_ID!;
-    folderName = isGold ? 'Gold' : 'Diamond';
-  }
+  // 6. Determine correct Drive folder — use student's L2 batch directly
+  //    (more reliable than checking main tracking sheet which may not have this student)
+  const isGold = student.batch === 'Gold';
+  const folderId = isGold
+    ? process.env.DRIVE_FOLDER_GOLD_ID!
+    : process.env.DRIVE_FOLDER_DIAMOND_ID!;
+  const folderName = isGold ? 'Gold' : 'Diamond';
 
   // 7. Upload PDF to Drive
   const filename = `${invoiceNumber.replace(/\//g, '-')} - ${student.name}.pdf`;
