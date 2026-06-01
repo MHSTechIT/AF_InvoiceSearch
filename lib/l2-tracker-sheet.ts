@@ -180,7 +180,7 @@ export async function writePaymentsToTracker(
     },
   });
 
-  console.log(`[L2] Wrote ${payments.length} payment(s) to "${tabName}" row ${rowNum} (${appFeePayments.length} app fees, ${regularPayments.length} regular)`);
+  console.log(`[L2] Wrote ${payments.length} payment(s) to "${tabName}" row ${rowNum} (1 app fee, ${regularPayments.length} regular)`);
 }
 
 // ─── Write invoice details to Sheet 2 (cols M, N, O) ───────────────────────
