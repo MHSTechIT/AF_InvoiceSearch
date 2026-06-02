@@ -303,7 +303,14 @@ export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch
     const d = new Date(s);
     return isNaN(d.getTime()) ? 0 : d.getTime();
   };
-  allMatches.sort((a, b) => parseDate(a.date) - parseDate(b.date));
+  // Primary: oldest date first. Secondary: lowest amount first (so app fees come before course fees on same date)
+  allMatches.sort((a, b) => {
+    const dateDiff = parseDate(a.date) - parseDate(b.date);
+    if (dateDiff !== 0) return dateDiff;
+    const amtA = parseFloat(a.amount.replace(/[^0-9.]/g, '')) || 0;
+    const amtB = parseFloat(b.amount.replace(/[^0-9.]/g, '')) || 0;
+    return amtA - amtB;
+  });
 
   return allMatches;
 }
