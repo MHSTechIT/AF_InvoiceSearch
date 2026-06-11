@@ -26,12 +26,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Write all payments to tracker sheet (cols P–AD)
+  // 2. Write all payments to tracker sheet (dynamic columns)
   try {
     await writePaymentsToTracker(
       student.tabName,
       student.rowIndex,
-      payments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount }))
+      payments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount })),
+      student.paymentStartColIdx
     );
   } catch (err) {
     console.error('Payment write-back error:', err);

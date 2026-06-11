@@ -66,7 +66,12 @@ export interface L2StudentRecord {
   batch: string;           // "Diamond" or "Gold"
   rowIndex: number;        // 0-based row in the tab (including header)
   tabName: string;         // "L2 Diamond Accounts" or "L2 Gold Accounts"
-  existingInvoiceNumber: string;  // col M — check if already invoiced
-  existingInvoiceDate: string;    // col N
-  existingInvoiceAmount: string;  // col O
+  existingInvoiceNumber: string;
+  existingInvoiceDate: string;
+  existingInvoiceAmount: string;
+  // Column indices (0-based) detected from headers — used for write-back
+  invoiceNumColIdx: number;   // "Invoice Number" column
+  invoiceDateColIdx: number;  // "Invoice Date" column
+  invoiceAmtColIdx: number;   // "Invoice Amount" column
+  paymentStartColIdx: number; // First payment column ("Application Fees" Mode of)
 }

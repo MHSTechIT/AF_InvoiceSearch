@@ -78,26 +78,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 8. Write invoice details to Sheet 2 (cols M, N, O) — non-blocking on failure
+  // 8. Write invoice details to tracker — non-blocking on failure
   try {
     await writeInvoiceToTracker(
       student.tabName,
       student.rowIndex,
       invoiceNumber,
       invoiceData.invoiceDate,
-      String(invoiceData.total)
+      String(invoiceData.total),
+      student.invoiceNumColIdx,
+      student.invoiceDateColIdx,
+      student.invoiceAmtColIdx
     );
   } catch (err) {
     console.warn('Sheet 2 invoice write failed (non-critical):', err);
   }
 
-  // 9. Write verified payments to tracker (cols P–AD) — non-blocking on failure
+  // 9. Write verified payments to tracker — non-blocking on failure
   if (allPayments && allPayments.length > 0) {
     try {
       await writePaymentsToTracker(
         student.tabName,
         student.rowIndex,
-        allPayments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount }))
+        allPayments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount })),
+        student.paymentStartColIdx
       );
     } catch (err) {
       console.warn('Payment write-back failed (non-critical):', err);

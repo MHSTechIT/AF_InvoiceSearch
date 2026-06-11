@@ -185,6 +185,19 @@ export default function InvoicePreview({ data }: { data: InvoiceData }) {
           <p key={i} className="text-[9.5px] text-gray-700 leading-relaxed">{t}</p>
         ))}
       </div>
+
+      {/* Signature overlaid on Seal */}
+      <div className="flex justify-end p-4 pr-8">
+        <div className="flex flex-col items-center">
+          <div className="relative w-40 h-28 flex items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/seal.jpeg" alt="Seal" className="w-24 h-24 object-contain" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/sign.png" alt="Signature" className="absolute top-1/2 -translate-y-1/2 w-40 h-[4.5rem] object-contain" />
+          </div>
+          <p className="text-[9px] italic text-gray-600 mt-1">Authorized signatory</p>
+        </div>
+      </div>
     </div>
   );
 }

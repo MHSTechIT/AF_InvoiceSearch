@@ -6,11 +6,16 @@ import { InvoiceData } from '@/lib/types';
 import { HSN } from '@/lib/invoice-calc';
 
 const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+const signPath = path.join(process.cwd(), 'public', 'sign.png');
+const sealPath = path.join(process.cwd(), 'public', 'seal.jpeg');
 
-function getLogoSrc(): string | null {
+function getImageSrc(filePath: string): string | null {
   try {
-    const buf = fs.readFileSync(logoPath);
-    return `data:image/png;base64,${buf.toString('base64')}`;
+    const buf = fs.readFileSync(filePath);
+    // Detect actual format from file header (magic bytes), not extension
+    const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8;
+    const mime = isJpeg ? 'image/jpeg' : 'image/png';
+    return `data:${mime};base64,${buf.toString('base64')}`;
   } catch {
     return null;
   }
@@ -93,6 +98,12 @@ const s = StyleSheet.create({
   tcHeader:      { fontSize: 8.5, fontWeight: 'bold', borderWidth: 1, borderColor: '#000', padding: 4, marginTop: 6 },
   tcBody:        { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#000', padding: 5 },
   tcText:        { fontSize: 7, marginBottom: 2.5, lineHeight: 1.4 },
+  sealSection:   { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10, paddingRight: 10 },
+  sealBlock:     { alignItems: 'center', width: 140 },
+  sealWrap:      { position: 'relative', width: 160, height: 110, alignItems: 'center', justifyContent: 'center' },
+  sealImage:     { width: 100, height: 100, objectFit: 'contain' },
+  signImage:     { position: 'absolute', top: 20, width: 160, height: 70, objectFit: 'contain' },
+  sealLabel:     { fontSize: 8, fontStyle: 'italic', color: '#333', marginTop: 4 },
 });
 
 const fmt = (n: number) =>
@@ -119,7 +130,9 @@ interface LineItem {
 
 export function InvoicePDFDocument({ data }: { data: InvoiceData }) {
   const { invoiceNumber, invoiceDate, clientName, phoneNo, gstin, address, itemDescription, baseValue, cgst, sgst, total } = data;
-  const logoSrc = getLogoSrc();
+  const logoSrc = getImageSrc(logoPath);
+  const signSrc = getImageSrc(signPath);
+  const sealSrc = getImageSrc(sealPath);
 
   // Change 3 — build line items (Application Fees & Course Fees separately)
   const appFees = data.applicationFees ?? 0;
@@ -235,6 +248,23 @@ export function InvoicePDFDocument({ data }: { data: InvoiceData }) {
         <View style={s.tcHeader}><Text>Terms &amp; Conditions</Text></View>
         <View style={s.tcBody}>
           {TERMS.map((t, i) => <Text key={i} style={s.tcText}>{t}</Text>)}
+        </View>
+
+        {/* Signature overlaid on Seal */}
+        <View style={s.sealSection}>
+          <View style={s.sealBlock}>
+            <View style={s.sealWrap}>
+              {sealSrc
+                ? <Image style={s.sealImage} src={sealSrc} />
+                : null
+              }
+              {signSrc
+                ? <Image style={s.signImage} src={signSrc} />
+                : null
+              }
+            </View>
+            <Text style={s.sealLabel}>Authorized signatory</Text>
+          </View>
         </View>
       </Page>
     </Document>
