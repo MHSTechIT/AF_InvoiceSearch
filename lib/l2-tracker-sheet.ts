@@ -255,43 +255,55 @@ export async function writeInvoiceToTracker(
   console.log(`[L2] Invoice write result: ${invoiceWriteRes.data.updatedCells} cells updated in ${invoiceWriteRes.data.updatedRange}`);
 }
 
-// ─── Check if invoice URL already exists in Sheet 3 (col P) ────────────────
-export async function findExistingInvoiceUrl(phone: string): Promise<string | null> {
+// ─── Get all data tabs from the confirmation sheet (skip "template") ────────
+async function getConfirmationTabs(): Promise<{ title: string; rows: string[][] }[]> {
   const auth = getGoogleAuth();
   const sheets = google.sheets({ version: 'v4', auth });
 
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: L2_CONFIRMATION_SHEET_ID });
+  const sheetList = meta.data.sheets ?? [];
+  const tabNames = sheetList
+    .map(s => s.properties?.title ?? '')
+    .filter(t => t && !t.toLowerCase().includes('template'));
+
+  if (tabNames.length === 0) return [];
+
+  // batchGet all tabs in a single API call
+  const ranges = tabNames.map(t => `'${t}'!A:Z`);
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: L2_CONFIRMATION_SHEET_ID,
+    ranges,
+  });
+
+  return (res.data.valueRanges ?? []).map((vr, i) => ({
+    title: tabNames[i],
+    rows: (vr.values ?? []) as string[][],
+  }));
+}
+
+// ─── Check if invoice URL already exists in any confirmation tab ────────────
+export async function findExistingInvoiceUrl(phone: string): Promise<string | null> {
   try {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: L2_CONFIRMATION_SHEET_ID });
-    const sheetList = meta.data.sheets ?? [];
-    if (sheetList.length === 0) return null;
-
-    const tabTitle = sheetList[0]?.properties?.title ?? 'Sheet1';
-    const range = `'${tabTitle}'!A:Z`;
-
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: L2_CONFIRMATION_SHEET_ID,
-      range,
-    });
-
-    const rows = res.data.values ?? [];
-    if (rows.length < 2) return null;
-
-    const headers = rows[0].map((h: string) => h.trim().toLowerCase());
-    const phoneColIdx = headers.findIndex(
-      (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
-    );
-    const urlColIdx = headers.findIndex(
-      (h: string) => h === 'invoice url' || h === 'invoice link' || h === 'url'
-    );
-
-    if (phoneColIdx === -1 || urlColIdx === -1) return null;
-
+    const tabs = await getConfirmationTabs();
     const target = normalizePhone(phone);
-    for (let i = 1; i < rows.length; i++) {
-      const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
-      if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
-        const url = String(rows[i][urlColIdx] ?? '').trim();
-        return url || null;  // null if empty
+
+    for (const { rows } of tabs) {
+      if (rows.length < 2) continue;
+      const headers = rows[0].map((h: string) => h.trim().toLowerCase());
+      const phoneColIdx = headers.findIndex(
+        (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
+      );
+      const urlColIdx = headers.findIndex(
+        (h: string) => h === 'invoice url' || h === 'invoice link' || h === 'url'
+      );
+      if (phoneColIdx === -1 || urlColIdx === -1) continue;
+
+      for (let i = 1; i < rows.length; i++) {
+        const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
+        if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
+          const url = String(rows[i][urlColIdx] ?? '').trim();
+          return url || null;
+        }
       }
     }
   } catch (err) {
@@ -301,7 +313,7 @@ export async function findExistingInvoiceUrl(phone: string): Promise<string | nu
   return null;
 }
 
-// ─── Write invoice URL to Sheet 3 (col P) ──────────────────────────────────
+// ─── Write invoice URL to confirmation sheet (searches all tabs) ────────────
 export async function writeInvoiceUrlToSheet3(
   phone: string,
   invoiceUrl: string
@@ -309,63 +321,40 @@ export async function writeInvoiceUrlToSheet3(
   const auth = getGoogleAuth();
   const sheets = google.sheets({ version: 'v4', auth });
 
-  // First, find the student row in Sheet 3 by phone number
-  // Read all data to find the phone column and row
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: L2_CONFIRMATION_SHEET_ID });
-  const sheetList = meta.data.sheets ?? [];
-  if (sheetList.length === 0) {
-    console.warn('Sheet 3 has no tabs');
-    return;
-  }
-
-  // Use the first tab
-  const tabTitle = sheetList[0]?.properties?.title ?? 'Sheet1';
-  const range = `'${tabTitle}'!A:Z`;
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: L2_CONFIRMATION_SHEET_ID,
-    range,
-  });
-
-  const rows = res.data.values ?? [];
-  if (rows.length < 2) return;
-
-  const headers = rows[0].map((h: string) => h.trim().toLowerCase());
-  const phoneColIdx = headers.findIndex(
-    (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
-  );
-
-  if (phoneColIdx === -1) {
-    console.warn('Phone column not found in Sheet 3. Headers:', rows[0]);
-    return;
-  }
-
-  // Detect URL column from header (instead of hardcoded P)
-  const urlColIdx = headers.findIndex(
-    (h: string) => h === 'invoice url' || h === 'invoice link' || h === 'url'
-  );
-  const urlCol = urlColIdx >= 0 ? colIndexToLetter(urlColIdx) : 'P'; // fallback to P if not found
-  console.log(`[L2] Sheet 3 URL column: ${urlCol} (index ${urlColIdx})`);
-
+  const tabs = await getConfirmationTabs();
   const target = normalizePhone(phone);
-  for (let i = 1; i < rows.length; i++) {
-    const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
-    if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
-      const rowNum = i + 1;
-      const cellRange = `'${tabTitle}'!${urlCol}${rowNum}`;
 
-      console.log(`[L2] Writing invoice URL to Sheet 3 ${cellRange}`);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: L2_CONFIRMATION_SHEET_ID,
-        range: cellRange,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[invoiceUrl]] },
-      });
-      return;
+  for (const { title, rows } of tabs) {
+    if (rows.length < 2) continue;
+    const headers = rows[0].map((h: string) => h.trim().toLowerCase());
+    const phoneColIdx = headers.findIndex(
+      (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
+    );
+    if (phoneColIdx === -1) continue;
+
+    const urlColIdx = headers.findIndex(
+      (h: string) => h === 'invoice url' || h === 'invoice link' || h === 'url'
+    );
+    const urlCol = urlColIdx >= 0 ? colIndexToLetter(urlColIdx) : 'P';
+
+    for (let i = 1; i < rows.length; i++) {
+      const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
+      if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
+        const rowNum = i + 1;
+        const cellRange = `'${title}'!${urlCol}${rowNum}`;
+        console.log(`[L2] Writing invoice URL to confirmation sheet: ${cellRange}`);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: L2_CONFIRMATION_SHEET_ID,
+          range: cellRange,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[invoiceUrl]] },
+        });
+        return;
+      }
     }
   }
 
-  console.warn(`Phone ${phone} not found in Sheet 3 for URL write-back`);
+  console.warn(`Phone ${phone} not found in any confirmation sheet tab for URL write-back`);
 }
 
 // ─── Get next L2 invoice number (auto-increment MHS/DD/XXX) ────────────────

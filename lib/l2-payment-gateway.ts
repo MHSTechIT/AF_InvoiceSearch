@@ -178,45 +178,21 @@ function isL2Category(category: string): boolean {
   return L2_CATEGORY_PREFIXES.some(prefix => trimmed.startsWith(prefix));
 }
 
-// ─── Search a single gateway tab ────────────────────────────────────────────
-async function searchGatewayTab(
+// ─── Parse rows from a single gateway's data ───────────────────────────────
+function parseGatewayRows(
   gateway: GatewayConfig,
+  rows: string[][],
   targetPhone: string
-): Promise<PaymentMatch[]> {
-  const auth = getGoogleAuth();
-  const sheets = google.sheets({ version: 'v4', auth });
-
-  // Determine the widest column we need to read (include category column)
-  const allCols = [...gateway.phoneCols, gateway.amountCol, gateway.dateCol, gateway.categoryCol];
-  const maxCol = Math.max(...allCols);
-  const endColLetter = colIndexToLetter(maxCol);
-
-  const range = `'${gateway.tabName}'!A1:${endColLetter}`;
-
-  let rows: string[][];
-  try {
-    const res = await withRetry(() =>
-      sheets.spreadsheets.values.get({
-        spreadsheetId: L2_ACCOUNTS_SHEET_ID,
-        range,
-      })
-    );
-    rows = (res.data.values ?? []) as string[][];
-  } catch (err) {
-    console.warn(`⚠ Failed to read gateway tab "${gateway.tabName}":`, (err as Error).message);
-    return [];
-  }
-
-  if (rows.length < 2) return []; // no data rows
+): PaymentMatch[] {
+  if (rows.length < 2) return [];
 
   const matches: PaymentMatch[] = [];
   const target = normalizePhone(targetPhone);
 
-  // Start from row 1 (skip header row 0)
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
 
-    // Filter by L2 category — skip rows that are not L2 (002/003/004/005)
+    // Filter by L2 category
     const category = String(row[gateway.categoryCol] ?? '').trim();
     if (!category || !isL2Category(category)) continue;
 
@@ -227,18 +203,13 @@ async function searchGatewayTab(
       const cellNorm = normalizePhone(cellValue);
       return cellNorm === target || cellNorm.slice(-10) === target.slice(-10);
     });
-
     if (!phoneMatched) continue;
 
-    // Extract amount and date
     const amount = String(row[gateway.amountCol] ?? '').trim();
     const date = normalizeDate(String(row[gateway.dateCol] ?? ''));
-
-    // Skip rows where amount is empty or zero
     const numericAmount = parseFloat(amount.replace(/[^0-9.]/g, ''));
     if (!amount || isNaN(numericAmount) || numericAmount <= 0) continue;
 
-    // Find the matched phone value for display
     let matchedPhone = '';
     for (const colIdx of gateway.phoneCols) {
       const cell = String(row[colIdx] ?? '').trim();
@@ -253,38 +224,59 @@ async function searchGatewayTab(
       amount,
       date,
       phone: matchedPhone,
-      rowIndex: i + 1, // 1-based for user display
+      rowIndex: i + 1,
     });
   }
 
   return matches;
 }
 
-// ─── Search gateways in batches (avoid API quota limits) ───────────────────
+// ─── Search ALL gateways in a single batchGet call ─────────────────────────
 export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch[]> {
   const target = normalizePhone(phone);
   if (target.length < 10 || target.length > 12) return [];
 
-  // Search in batches of 5 to avoid hitting Sheets API quota (60 reads/min)
-  const BATCH_SIZE = 5;
-  const allResults: PromiseSettledResult<PaymentMatch[]>[] = [];
-  for (let i = 0; i < GATEWAYS.length; i += BATCH_SIZE) {
-    const batch = GATEWAYS.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.allSettled(
-      batch.map(gw => searchGatewayTab(gw, target))
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  // Build all ranges for a single batchGet (1 API call instead of 10)
+  const ranges = GATEWAYS.map(gw => {
+    const allCols = [...gw.phoneCols, gw.amountCol, gw.dateCol, gw.categoryCol];
+    const maxCol = Math.max(...allCols);
+    return `'${gw.tabName}'!A1:${colIndexToLetter(maxCol)}`;
+  });
+
+  console.log(`[L2] batchGet: fetching ${ranges.length} gateway tabs in 1 API call`);
+  const startTime = Date.now();
+
+  let valueRanges: { values?: string[][] }[];
+  try {
+    const res = await withRetry(() =>
+      sheets.spreadsheets.values.batchGet({
+        spreadsheetId: L2_ACCOUNTS_SHEET_ID,
+        ranges,
+      })
     );
-    allResults.push(...batchResults);
+    valueRanges = (res.data.valueRanges ?? []) as { values?: string[][] }[];
+  } catch (err) {
+    console.error(`[L2] batchGet failed:`, (err as Error).message);
+    return [];
   }
 
-  const allMatches: PaymentMatch[] = [];
-  for (let i = 0; i < allResults.length; i++) {
-    const result = allResults[i];
-    if (result.status === 'fulfilled') {
-      allMatches.push(...result.value);
-    } else {
-      console.warn(`⚠ Gateway "${GATEWAYS[i].label}" search failed:`, result.reason);
+  console.log(`[L2] batchGet completed in ${Date.now() - startTime}ms`);
+
+  // Parse each gateway's rows
+  const allResults = GATEWAYS.map((gw, i) => {
+    try {
+      const rows = (valueRanges[i]?.values ?? []) as string[][];
+      return parseGatewayRows(gw, rows, target);
+    } catch (err) {
+      console.warn(`⚠ Gateway "${gw.label}" parse failed:`, (err as Error).message);
+      return [];
     }
-  }
+  });
+
+  const allMatches: PaymentMatch[] = allResults.flat();
 
   // Sort by date (newest first)
   const MONTHS: Record<string, number> = {
