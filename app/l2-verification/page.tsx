@@ -1,17 +1,30 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import * as XLSX from 'xlsx';
 import { L2StudentRecord, PaymentMatch } from '@/lib/types';
 import L2StudentCard from '@/components/L2StudentCard';
 import L2PaymentTable from '@/components/L2PaymentTable';
+import L2BulkResults, { BulkResult } from '@/components/L2BulkResults';
 
 export default function L2VerificationPage() {
   const router = useRouter();
+
+  // ─── Mode (single vs bulk) ─────────────────────────────────────────────────
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
 
   // ─── Search Phase ──────────────────────────────────────────────────────────
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // ─── Bulk Phase ────────────────────────────────────────────────────────────
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkInfo, setBulkInfo] = useState('');
+  const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
+  const [bulkFileName, setBulkFileName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Results Phase ─────────────────────────────────────────────────────────
   const [student, setStudent] = useState<L2StudentRecord | null>(null);
@@ -52,6 +65,7 @@ export default function L2VerificationPage() {
       date: latestPayment.date,
       phone: latestPayment.phone,
       rowIndex: latestPayment.rowIndex,
+      category: latestPayment.category,
     };
   }
 
@@ -192,6 +206,70 @@ export default function L2VerificationPage() {
     setError('');
   }
 
+  // ─── Bulk: parse .xlsx → phone list → bulk verify ─────────────────────────
+  async function handleBulkFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFileName(file.name);
+    setBulkError('');
+    setBulkInfo('');
+    setBulkResults([]);
+    setBulkLoading(true);
+
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      // Read as a matrix; take the first column of every row
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, blankrows: false });
+
+      const phones: string[] = [];
+      const seen = new Set<string>();
+      for (const row of rows) {
+        const cell = row?.[0];
+        if (cell === undefined || cell === null || cell === '') continue;
+        const digits = String(cell).replace(/\s+/g, '').replace(/[^0-9]/g, '');
+        if (digits.length < 10 || digits.length > 12) continue; // skips a header label too
+        if (seen.has(digits)) continue;
+        seen.add(digits);
+        phones.push(digits);
+      }
+
+      if (phones.length === 0) {
+        setBulkError('No valid 10–12 digit phone numbers found in the first column of the file.');
+        return;
+      }
+
+      const res = await fetch('/api/l2/verify-payment-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones }),
+      });
+      if (res.status === 401) { router.push('/'); return; }
+      const data = await res.json();
+      if (!res.ok) {
+        setBulkError(data.error || 'Bulk verification failed');
+        return;
+      }
+
+      setBulkResults(data.results);
+      const found = (data.results as BulkResult[]).filter(r => r.student || r.payments.length > 0).length;
+      setBulkInfo(`${data.results.length} number(s) processed · ${found} with data`);
+    } catch (err) {
+      setBulkError('Could not read the file: ' + (err as Error).message);
+    } finally {
+      setBulkLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = ''; // allow re-upload of same file
+    }
+  }
+
+  function switchMode(next: 'single' | 'bulk') {
+    setMode(next);
+    setError(''); setBulkError(''); setBulkInfo('');
+    if (next === 'single') { setBulkResults([]); setBulkFileName(''); }
+    else { handleNewSearch(); }
+  }
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/');
@@ -229,11 +307,60 @@ export default function L2VerificationPage() {
 
         {/* ── Search Card ──────────────────────────────────────────────────── */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-1">L2 Payment Verification</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-gray-700">L2 Payment Verification</h2>
+            {/* Single / Bulk toggle */}
+            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+              <button
+                onClick={() => switchMode('single')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${mode === 'single' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Single
+              </button>
+              <button
+                onClick={() => switchMode('bulk')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${mode === 'bulk' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Bulk Upload
+              </button>
+            </div>
+          </div>
           <p className="text-xs text-gray-400 mb-4">
-            Enter a mobile number (10-12 digits) to search student record and verify payments across all gateways
+            {mode === 'single'
+              ? 'Enter a mobile number (10-12 digits) to search student record and verify payments across all gateways'
+              : 'Upload an Excel (.xlsx) file with mobile numbers in the first column — every number is verified and shown below'}
           </p>
-          <form onSubmit={handleSearch} className="flex gap-3">
+
+          {mode === 'bulk' && (
+            <div className="flex items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleBulkFile}
+                disabled={bulkLoading}
+                className="block w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:opacity-90 file:cursor-pointer disabled:opacity-60"
+              />
+              {bulkLoading && (
+                <span className="flex items-center gap-2 text-sm text-purple-600 whitespace-nowrap">
+                  <span className="animate-spin inline-block w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full" />
+                  Verifying...
+                </span>
+              )}
+            </div>
+          )}
+
+          {mode === 'bulk' && bulkFileName && !bulkLoading && (
+            <p className="mt-2 text-xs text-gray-400">File: {bulkFileName}</p>
+          )}
+          {mode === 'bulk' && bulkError && (
+            <div className="mt-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2.5">{bulkError}</div>
+          )}
+          {mode === 'bulk' && bulkInfo && (
+            <div className="mt-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2.5">{bulkInfo}</div>
+          )}
+
+          <form onSubmit={handleSearch} className={`gap-3 ${mode === 'single' ? 'flex' : 'hidden'}`}>
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">📱</span>
               <input
@@ -262,20 +389,25 @@ export default function L2VerificationPage() {
             </button>
           </form>
 
-          {error && (
+          {mode === 'single' && error && (
             <div className="mt-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2.5">
               {error}
             </div>
           )}
-          {updateResult && (
+          {mode === 'single' && updateResult && (
             <div className="mt-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-2.5">
               {updateResult}
             </div>
           )}
         </div>
 
-        {/* ── Student Card + Payments ─────────────────────────────────────── */}
-        {(student || payments.length > 0) && (
+        {/* ── Bulk Results ────────────────────────────────────────────────── */}
+        {mode === 'bulk' && bulkResults.length > 0 && (
+          <L2BulkResults results={bulkResults} />
+        )}
+
+        {/* ── Student Card + Payments (single mode) ───────────────────────── */}
+        {mode === 'single' && (student || payments.length > 0) && (
           <>
             {student ? (
               <L2StudentCard student={student} existingInvoiceUrl={existingInvoiceUrl} />

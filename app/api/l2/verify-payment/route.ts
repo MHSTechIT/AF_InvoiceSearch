@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { findL2Student, findExistingInvoiceUrl } from '@/lib/l2-tracker-sheet';
+import { findL2Student, findExistingInvoiceUrl, syncDiamondAccessPhoneToF } from '@/lib/l2-tracker-sheet';
 import { searchPaymentsByPhone } from '@/lib/l2-payment-gateway';
 
 export async function GET(req: NextRequest) {
@@ -29,6 +29,21 @@ export async function GET(req: NextRequest) {
       { error: 'Failed to search sheets: ' + (err as Error).message },
       { status: 500 }
     );
+  }
+
+  // For a Diamond student, push the phone into column F (matching DIAMOND ACCESS's
+  // data type) so the sheet's lookup formulas resolve, then re-read the populated row.
+  // Non-blocking — verification still succeeds if the sync fails.
+  if (student && student.batch === 'Diamond') {
+    try {
+      const changed = await syncDiamondAccessPhoneToF(student.tabName, student.rowIndex, phone.trim());
+      if (changed) {
+        const refreshed = await findL2Student(phone.trim());
+        if (refreshed) student = refreshed;
+      }
+    } catch (err) {
+      console.warn('[L2] Diamond Access F-sync failed (non-critical):', (err as Error).message);
+    }
   }
 
   // If student not found AND no payments found, return 404

@@ -55,6 +55,7 @@ export interface PaymentMatch {
   date: string;          // raw cell value from date column
   phone: string;         // the matched phone value
   rowIndex: number;      // row number in the gateway tab (for reference)
+  category: string;      // raw category cell (e.g. "002 L2 Application") — used to mark the Application Fee
 }
 
 export interface L2StudentRecord {

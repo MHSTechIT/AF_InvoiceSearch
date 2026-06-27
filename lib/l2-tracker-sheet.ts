@@ -1,10 +1,11 @@
 import { google } from 'googleapis';
 import { getGoogleAuth, withRetry } from './google-auth';
 import { L2StudentRecord } from './types';
-import { colIndexToLetter } from './l2-payment-gateway';
+import { colIndexToLetter, pickApplicationFeeIndex } from './l2-payment-gateway';
 
 const L2_TRACKER_SHEET_ID = process.env.L2_TRACKER_SHEET_ID!;     // Student records + invoice write-back
 const L2_CONFIRMATION_SHEET_ID = process.env.L2_CONFIRMATION_SHEET_ID!;
+const L2_TAB_DIAMOND_ACCESS = process.env.L2_TAB_DIAMOND_ACCESS || 'DIAMOND ACCESS';
 
 // ─── L2 student tabs in the Tracker sheet ──────────────────────────────────
 interface L2TabConfig {
@@ -22,45 +23,43 @@ function normalizePhone(phone: string): string {
   return phone.replace(/\s+/g, '').replace(/[^0-9]/g, '');
 }
 
-// ─── Find a student by phone in a specific tab ──────────────────────────────
-async function findStudentInTab(
-  phone: string,
-  tabName: string,
-  batch: string
-): Promise<L2StudentRecord | null> {
+// ─── Detected column indices for an L2 tracker tab ──────────────────────────
+interface TabColumns {
+  phoneColIdx: number;
+  nameColIdx: number;
+  emailColIdx: number;
+  addressColIdx: number;
+  gstinColIdx: number;
+  invoiceNumColIdx: number;
+  invoiceDateColIdx: number;
+  invoiceAmtColIdx: number;
+  paymentStartColIdx: number;
+}
+
+// ─── Read all rows of a tab (A:Z) ───────────────────────────────────────────
+async function readTabRows(tabName: string): Promise<string[][]> {
   const auth = getGoogleAuth();
   const sheets = google.sheets({ version: 'v4', auth });
-
-  const range = `'${tabName}'!A:Z`;
-  console.log(`[L2] Searching tab "${tabName}" in sheet ${L2_TRACKER_SHEET_ID} for phone ${phone}`);
-
   const res = await withRetry(() =>
     sheets.spreadsheets.values.get({
       spreadsheetId: L2_TRACKER_SHEET_ID,
-      range,
+      range: `'${tabName}'!A:Z`,
     })
   );
+  return (res.data.values ?? []) as string[][];
+}
 
-  const rows = res.data.values ?? [];
-  console.log(`[L2] Tab "${tabName}": ${rows.length} rows found`);
+// ─── Detect tracker columns from the header row (survives column insertions) ─
+function detectTabColumns(rows: string[][], tabName: string): TabColumns | null {
   if (rows.length < 2) return null;
-
   const headers = rows[0].map((h: string) => h.trim().toLowerCase());
-  console.log(`[L2] Tab "${tabName}" headers:`, rows[0]);
 
-  // Find phone column by header, fallback to column F (index 5) if header is blank
+  // Phone column by header, fallback to column F (index 5)
   let phoneColIdx = headers.findIndex(
     (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile' || h === 'mobile number'
   );
-  if (phoneColIdx === -1) {
-    // Fallback: column F (index 5) is consistently the phone column in L2 tracker sheets
-    phoneColIdx = 5;
-    console.log(`[L2] Phone column header not found in tab "${tabName}", using fallback col F (index 5)`);
-  } else {
-    console.log(`[L2] Phone column found at index ${phoneColIdx} (header: "${rows[0][phoneColIdx]}")`);
-  }
+  if (phoneColIdx === -1) phoneColIdx = 5;
 
-  // Find other columns by header
   const nameColIdx = headers.findIndex(
     (h: string) => h === 'client name' || h === 'name' || h === 'student name'
   );
@@ -74,7 +73,6 @@ async function findStudentInTab(
     (h: string) => h === 'gstin' || h === 'gst' || h === 'gst no'
   );
 
-  // Invoice columns — detected by header (not hardcoded, survives column insertions)
   const invoiceNumColIdx = headers.findIndex(
     (h: string) => h === 'invoice number' || h === 'invoice no' || h === 'invoice #'
   );
@@ -85,18 +83,12 @@ async function findStudentInTab(
     (h: string) => h === 'invoice amount' || h === 'invoice amt'
   );
 
-  // Payment start column — right after Invoice Amount column
-  // Row 1 has merged headers ("Application Fees") and Row 2 has sub-headers ("Mode of"),
-  // so we can't reliably detect "Mode of" from row 0. Instead, payment columns always
-  // start immediately after the invoice amount column.
+  // Payment columns start right after the Invoice Amount column (see header note)
   const invoiceLastCol = Math.max(invoiceNumColIdx, invoiceDateColIdx, invoiceAmtColIdx);
   let paymentStartColIdx = invoiceLastCol >= 0 ? invoiceLastCol + 1 : -1;
-
-  // Double-check: if row 0 has "application" at that position, it confirms the payment section
   if (paymentStartColIdx >= 0 && paymentStartColIdx < headers.length) {
     const h = headers[paymentStartColIdx];
     if (h && !h.includes('application') && !h.includes('mode') && !h.includes('payment') && h !== '') {
-      // Header doesn't look like a payment column — might be a gap, try next columns
       for (let c = paymentStartColIdx; c < Math.min(paymentStartColIdx + 3, headers.length); c++) {
         const ch = headers[c];
         if (ch.includes('application') || ch.includes('mode') || ch === '') {
@@ -107,34 +99,54 @@ async function findStudentInTab(
     }
   }
 
-  console.log(`[L2] Column detection: invoiceNum=${invoiceNumColIdx}(${colIndexToLetter(invoiceNumColIdx)}), invoiceDate=${invoiceDateColIdx}(${colIndexToLetter(invoiceDateColIdx)}), invoiceAmt=${invoiceAmtColIdx}(${colIndexToLetter(invoiceAmtColIdx)}), paymentStart=${paymentStartColIdx}(${paymentStartColIdx >= 0 ? colIndexToLetter(paymentStartColIdx) : 'N/A'})`);
+  console.log(`[L2] "${tabName}" columns: phone=${colIndexToLetter(phoneColIdx)}, invoiceNum=${colIndexToLetter(invoiceNumColIdx)}, paymentStart=${paymentStartColIdx >= 0 ? colIndexToLetter(paymentStartColIdx) : 'N/A'}`);
+
+  return {
+    phoneColIdx, nameColIdx, emailColIdx, addressColIdx, gstinColIdx,
+    invoiceNumColIdx, invoiceDateColIdx, invoiceAmtColIdx, paymentStartColIdx,
+  };
+}
+
+// ─── Build an L2StudentRecord from a matched row ────────────────────────────
+function buildStudentRecord(
+  row: string[], rowIndex: number, tabName: string, batch: string, c: TabColumns
+): L2StudentRecord {
+  return {
+    name: String(row[c.nameColIdx] ?? '').trim() || 'Unknown',
+    phone: String(row[c.phoneColIdx] ?? '').trim(),
+    email: c.emailColIdx >= 0 ? String(row[c.emailColIdx] ?? '').trim() : '',
+    address: c.addressColIdx >= 0 ? String(row[c.addressColIdx] ?? '').trim() : '',
+    gstin: c.gstinColIdx >= 0 ? String(row[c.gstinColIdx] ?? '').trim() : '',
+    batch,
+    rowIndex,
+    tabName,
+    existingInvoiceNumber: c.invoiceNumColIdx >= 0 ? String(row[c.invoiceNumColIdx] ?? '').trim() : '',
+    existingInvoiceDate: c.invoiceDateColIdx >= 0 ? String(row[c.invoiceDateColIdx] ?? '').trim() : '',
+    existingInvoiceAmount: c.invoiceAmtColIdx >= 0 ? String(row[c.invoiceAmtColIdx] ?? '').trim() : '',
+    invoiceNumColIdx: c.invoiceNumColIdx,
+    invoiceDateColIdx: c.invoiceDateColIdx,
+    invoiceAmtColIdx: c.invoiceAmtColIdx,
+    paymentStartColIdx: c.paymentStartColIdx,
+  };
+}
+
+// ─── Find a student by phone in a specific tab ──────────────────────────────
+async function findStudentInTab(
+  phone: string,
+  tabName: string,
+  batch: string
+): Promise<L2StudentRecord | null> {
+  console.log(`[L2] Searching tab "${tabName}" for phone ${phone}`);
+  const rows = await readTabRows(tabName);
+  const cols = detectTabColumns(rows, tabName);
+  if (!cols) return null;
 
   const target = normalizePhone(phone);
-
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const cellPhone = normalizePhone(String(row[phoneColIdx] ?? ''));
+    const cellPhone = normalizePhone(String(rows[i][cols.phoneColIdx] ?? ''));
     if (cellPhone !== target && cellPhone.slice(-10) !== target.slice(-10)) continue;
-
-    return {
-      name: String(row[nameColIdx] ?? '').trim() || 'Unknown',
-      phone: String(row[phoneColIdx] ?? '').trim(),
-      email: emailColIdx >= 0 ? String(row[emailColIdx] ?? '').trim() : '',
-      address: addressColIdx >= 0 ? String(row[addressColIdx] ?? '').trim() : '',
-      gstin: gstinColIdx >= 0 ? String(row[gstinColIdx] ?? '').trim() : '',
-      batch,
-      rowIndex: i,
-      tabName,
-      existingInvoiceNumber: invoiceNumColIdx >= 0 ? String(row[invoiceNumColIdx] ?? '').trim() : '',
-      existingInvoiceDate: invoiceDateColIdx >= 0 ? String(row[invoiceDateColIdx] ?? '').trim() : '',
-      existingInvoiceAmount: invoiceAmtColIdx >= 0 ? String(row[invoiceAmtColIdx] ?? '').trim() : '',
-      invoiceNumColIdx,
-      invoiceDateColIdx,
-      invoiceAmtColIdx,
-      paymentStartColIdx,
-    };
+    return buildStudentRecord(rows[i], i, tabName, batch, cols);
   }
-
   return null;
 }
 
@@ -163,12 +175,127 @@ export async function findL2Student(phone: string): Promise<L2StudentRecord | nu
   return null;
 }
 
-// ─── Write verified payments to tracker (Application Fees + 1st–4th Payment) ─
-// Payment columns layout (each block = Mode, Date, Amount) — 5 slots × 3 cols = 15 cells
+// ─── Bulk: find MANY students with ONE batchGet of both tabs ────────────────
+// Reads Diamond + Gold once, then matches all phones in memory (Diamond wins).
+export async function findL2StudentsForPhones(
+  phones: string[]
+): Promise<Map<string, L2StudentRecord>> {
+  const result = new Map<string, L2StudentRecord>();
+  const targets = phones
+    .map(p => normalizePhone(p))
+    .filter(p => p.length >= 10 && p.length <= 12);
+  if (targets.length === 0) return result;
+
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+  const ranges = L2_TABS.map(t => `'${t.tabName}'!A:Z`);
+
+  const res = await withRetry(() =>
+    sheets.spreadsheets.values.batchGet({
+      spreadsheetId: L2_TRACKER_SHEET_ID,
+      ranges,
+    })
+  );
+  const valueRanges = (res.data.valueRanges ?? []) as { values?: string[][] }[];
+
+  for (let t = 0; t < L2_TABS.length; t++) {
+    const { tabName, batch } = L2_TABS[t];
+    const rows = (valueRanges[t]?.values ?? []) as string[][];
+    const cols = detectTabColumns(rows, tabName);
+    if (!cols) continue;
+
+    for (const target of targets) {
+      if (result.has(target)) continue; // Diamond (first tab) wins over Gold
+      for (let i = 1; i < rows.length; i++) {
+        const cellPhone = normalizePhone(String(rows[i][cols.phoneColIdx] ?? ''));
+        if (cellPhone === target || cellPhone.slice(-10) === target.slice(-10)) {
+          result.set(target, buildStudentRecord(rows[i], i, tabName, batch, cols));
+          break;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// ─── Sync phone into column F of L2 Diamond Accounts (format-safe) ──────────
+// The L2 Diamond Accounts sheet has lookup formulas keyed on column F that pull
+// values from the DIAMOND ACCESS tab. Those lookups need an EXACT type match —
+// text "9842…" ≠ number 9842…. This reads the phone's stored value from the
+// DIAMOND ACCESS tab (preserving its number/text type) and writes that exact
+// value into F of the given row with RAW, so the formulas resolve.
+// Returns true if F was (re)written. Non-fatal: callers may ignore failures.
+export async function syncDiamondAccessPhoneToF(
+  tabName: string,
+  rowIndex: number,
+  phone: string
+): Promise<boolean> {
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+  const target = normalizePhone(phone);
+
+  // Read DIAMOND ACCESS with UNFORMATTED_VALUE so numbers stay numbers, text stays text
+  let rows: (string | number)[][];
+  try {
+    const res = await withRetry(() =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: L2_TRACKER_SHEET_ID,
+        range: `'${L2_TAB_DIAMOND_ACCESS}'!A:Z`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      })
+    );
+    rows = (res.data.values ?? []) as (string | number)[][];
+  } catch (err) {
+    console.warn(`[L2] Could not read "${L2_TAB_DIAMOND_ACCESS}" tab:`, (err as Error).message);
+    return false;
+  }
+  if (rows.length < 2) return false;
+
+  // Detect phone column in DIAMOND ACCESS (header, fallback to col F)
+  const headers = rows[0].map(h => String(h ?? '').trim().toLowerCase());
+  let phoneColIdx = headers.findIndex(
+    h => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile' || h === 'mobile number'
+  );
+  if (phoneColIdx === -1) phoneColIdx = 5;
+
+  // Find the row whose phone matches; capture its RAW typed value
+  let rawValue: string | number | null = null;
+  for (let i = 1; i < rows.length; i++) {
+    const cell = rows[i][phoneColIdx];
+    if (cell === undefined || cell === null || cell === '') continue;
+    const cellNorm = normalizePhone(String(cell));
+    if (cellNorm === target || cellNorm.slice(-10) === target.slice(-10)) {
+      rawValue = cell;
+      break;
+    }
+  }
+
+  if (rawValue === null) {
+    console.log(`[L2] Phone ${phone} not found in "${L2_TAB_DIAMOND_ACCESS}" — skipping F sync`);
+    return false;
+  }
+
+  // Write the exact typed value into F with RAW (preserves number vs text)
+  const cellRange = `'${tabName}'!F${rowIndex + 1}`;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: L2_TRACKER_SHEET_ID,
+    range: cellRange,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[rawValue]] },
+  });
+  console.log(`[L2] Synced ${L2_TAB_DIAMOND_ACCESS} phone (${typeof rawValue}) → ${cellRange}`);
+  return true;
+}
+
+// ─── Write verified payments to tracker (Application Fees + 1st–10th Payment) ─
+// Payment columns layout (each block = Mode, Date, Amount) — 11 slots × 3 cols = 33 cells
+const MAX_REGULAR_PAYMENTS = 10;        // 1st–10th Payment
+const PAYMENT_BLOCK_CELLS = (MAX_REGULAR_PAYMENTS + 1) * 3; // 33 (incl. Application Fees)
 export async function writePaymentsToTracker(
   tabName: string,
   rowIndex: number,
-  payments: { gateway: string; date: string; amount: string }[],
+  payments: { gateway: string; date: string; amount: string; category?: string }[],
   paymentStartColIdx: number
 ): Promise<void> {
   if (payments.length === 0 || paymentStartColIdx < 0) return;
@@ -177,20 +304,23 @@ export async function writePaymentsToTracker(
   const sheets = google.sheets({ version: 'v4', auth });
   const rowNum = rowIndex + 1; // 1-based
 
-  // First payment (by date order) = Application Fees, rest = 1st–4th Payment
-  const appFee = payments[0];
-  const regularPayments = payments.slice(1);
+  // Application Fees = the payment whose category starts with "002" (L2 Application);
+  // falls back to the first (oldest) payment when no 002 category is present.
+  // The remaining payments keep their date order for the 1st–10th slots.
+  const appFeeIdx = pickApplicationFeeIndex(payments);
+  const appFee = payments[appFeeIdx];
+  const regularPayments = payments.filter((_, i) => i !== appFeeIdx);
 
-  // Build 15 cells: [AppFee_Mode, AppFee_Date, AppFee_Amt, 1st_Mode, ...]
-  const rowData: string[] = new Array(15).fill('');
+  // Build 33 cells: [AppFee_Mode, AppFee_Date, AppFee_Amt, 1st_Mode, ...]
+  const rowData: string[] = new Array(PAYMENT_BLOCK_CELLS).fill('');
 
-  // Application Fees (first received payment)
+  // Application Fees block
   rowData[0] = appFee.gateway;
   rowData[1] = appFee.date;
   rowData[2] = appFee.amount.replace(/[^0-9.]/g, '');
 
-  // 1st through 4th Payment (slots at offset 3, 6, 9, 12)
-  for (let i = 0; i < Math.min(regularPayments.length, 4); i++) {
+  // 1st through 10th Payment (slots at offset 3, 6, 9, … , 30)
+  for (let i = 0; i < Math.min(regularPayments.length, MAX_REGULAR_PAYMENTS); i++) {
     const offset = 3 + i * 3;
     rowData[offset]     = regularPayments[i].gateway;
     rowData[offset + 1] = regularPayments[i].date;
@@ -198,7 +328,7 @@ export async function writePaymentsToTracker(
   }
 
   const startCol = colIndexToLetter(paymentStartColIdx);
-  const endCol = colIndexToLetter(paymentStartColIdx + 14);
+  const endCol = colIndexToLetter(paymentStartColIdx + PAYMENT_BLOCK_CELLS - 1);
   const cellRange = `'${tabName}'!${startCol}${rowNum}:${endCol}${rowNum}`;
 
   console.log(`[L2] Writing ${payments.length} payment(s) to "${tabName}" ${cellRange}`);
@@ -311,6 +441,43 @@ export async function findExistingInvoiceUrl(phone: string): Promise<string | nu
   }
 
   return null;
+}
+
+// ─── Bulk: existing invoice URLs for MANY phones (reads confirmation tabs once) ─
+export async function findExistingInvoiceUrlsForPhones(
+  phones: string[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const targets = phones.map(p => normalizePhone(p)).filter(p => p.length >= 10 && p.length <= 12);
+  if (targets.length === 0) return result;
+
+  try {
+    const tabs = await getConfirmationTabs();
+    for (const { rows } of tabs) {
+      if (rows.length < 2) continue;
+      const headers = rows[0].map((h: string) => h.trim().toLowerCase());
+      const phoneColIdx = headers.findIndex(
+        (h: string) => h === 'phone number' || h === 'phone no' || h === 'phone' || h === 'mobile'
+      );
+      const urlColIdx = headers.findIndex(
+        (h: string) => h === 'invoice url' || h === 'invoice link' || h === 'url'
+      );
+      if (phoneColIdx === -1 || urlColIdx === -1) continue;
+
+      for (let i = 1; i < rows.length; i++) {
+        const cellPhone = normalizePhone(String(rows[i][phoneColIdx] ?? ''));
+        const match = targets.find(t => cellPhone === t || cellPhone.slice(-10) === t.slice(-10));
+        if (match && !result.has(match)) {
+          const url = String(rows[i][urlColIdx] ?? '').trim();
+          if (url) result.set(match, url);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Failed bulk invoice-URL lookup:', (err as Error).message);
+  }
+
+  return result;
 }
 
 // ─── Write invoice URL to confirmation sheet (searches all tabs) ────────────

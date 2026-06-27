@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       await writePaymentsToTracker(
         student.tabName,
         student.rowIndex,
-        allPayments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount })),
+        allPayments.map(p => ({ gateway: p.gateway, date: p.date, amount: p.amount, category: p.category })),
         student.paymentStartColIdx
       );
     } catch (err) {

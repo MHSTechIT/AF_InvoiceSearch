@@ -178,6 +178,18 @@ function isL2Category(category: string): boolean {
   return L2_CATEGORY_PREFIXES.some(prefix => trimmed.startsWith(prefix));
 }
 
+// ─── Application Fee category prefix (002 = L2 Application) ─────────────────
+const APPLICATION_FEE_PREFIX = '002';
+
+// Pick the index of the Application Fee payment in a list.
+// Rule: the payment whose category starts with "002"; if several, the earliest
+// (the list is expected to be date-sorted). Falls back to index 0 if none.
+export function pickApplicationFeeIndex(payments: { category?: string }[]): number {
+  if (payments.length === 0) return -1;
+  const idx = payments.findIndex(p => (p.category ?? '').trim().startsWith(APPLICATION_FEE_PREFIX));
+  return idx >= 0 ? idx : 0;
+}
+
 // ─── Parse rows from a single gateway's data ───────────────────────────────
 function parseGatewayRows(
   gateway: GatewayConfig,
@@ -225,10 +237,37 @@ function parseGatewayRows(
       date,
       phone: matchedPhone,
       rowIndex: i + 1,
+      category,
     });
   }
 
   return matches;
+}
+
+// ─── Sort matches: oldest date first, then lowest amount (app fee leads) ────
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+function parsePaymentDate(s: string): number {
+  if (!s) return 0;
+  // Dates are normalized to "DD MMM YYYY" (e.g. "12 Apr 2026")
+  const m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  if (m) {
+    const mon = MONTHS[m[2].toLowerCase().slice(0, 3)];
+    if (mon !== undefined) return new Date(Number(m[3]), mon, Number(m[1])).getTime();
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+function sortPaymentMatches(matches: PaymentMatch[]): PaymentMatch[] {
+  return matches.sort((a, b) => {
+    const dateDiff = parsePaymentDate(a.date) - parsePaymentDate(b.date);
+    if (dateDiff !== 0) return dateDiff;
+    const amtA = parseFloat(a.amount.replace(/[^0-9.]/g, '')) || 0;
+    const amtB = parseFloat(b.amount.replace(/[^0-9.]/g, '')) || 0;
+    return amtA - amtB;
+  });
 }
 
 // ─── Search ALL gateways in a single batchGet call ─────────────────────────
@@ -276,35 +315,67 @@ export async function searchPaymentsByPhone(phone: string): Promise<PaymentMatch
     }
   });
 
-  const allMatches: PaymentMatch[] = allResults.flat();
+  return sortPaymentMatches(allResults.flat());
+}
 
-  // Sort by date (newest first)
-  const MONTHS: Record<string, number> = {
-    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-  };
-  const parseDate = (s: string): number => {
-    if (!s) return 0;
-    // Dates are normalized to "DD MMM YYYY" (e.g. "12 Apr 2026")
-    const m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
-    if (m) {
-      const mon = MONTHS[m[2].toLowerCase().slice(0, 3)];
-      if (mon !== undefined) return new Date(Number(m[3]), mon, Number(m[1])).getTime();
-    }
-    // Fallback
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? 0 : d.getTime();
-  };
-  // Primary: oldest date first. Secondary: lowest amount first (so app fees come before course fees on same date)
-  allMatches.sort((a, b) => {
-    const dateDiff = parseDate(a.date) - parseDate(b.date);
-    if (dateDiff !== 0) return dateDiff;
-    const amtA = parseFloat(a.amount.replace(/[^0-9.]/g, '')) || 0;
-    const amtB = parseFloat(b.amount.replace(/[^0-9.]/g, '')) || 0;
-    return amtA - amtB;
+// ─── Bulk: search MANY phones with ONE batchGet of all gateway tabs ─────────
+// Fetches every gateway tab once, then matches all phones in memory.
+// Avoids N×(gateway batchGet) calls when verifying a list of numbers.
+export async function searchPaymentsForPhones(
+  phones: string[]
+): Promise<Map<string, PaymentMatch[]>> {
+  const result = new Map<string, PaymentMatch[]>();
+  const validPhones = phones
+    .map(p => normalizePhone(p))
+    .filter(p => p.length >= 10 && p.length <= 12);
+  if (validPhones.length === 0) return result;
+
+  const auth = getGoogleAuth();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  const ranges = GATEWAYS.map(gw => {
+    const allCols = [...gw.phoneCols, gw.amountCol, gw.dateCol, gw.categoryCol];
+    const maxCol = Math.max(...allCols);
+    return `'${gw.tabName}'!A1:${colIndexToLetter(maxCol)}`;
   });
 
-  return allMatches;
+  console.log(`[L2-bulk] batchGet: ${ranges.length} gateway tabs for ${validPhones.length} phones`);
+  const startTime = Date.now();
+
+  let valueRanges: { values?: string[][] }[];
+  try {
+    const res = await withRetry(() =>
+      sheets.spreadsheets.values.batchGet({
+        spreadsheetId: L2_ACCOUNTS_SHEET_ID,
+        ranges,
+      })
+    );
+    valueRanges = (res.data.valueRanges ?? []) as { values?: string[][] }[];
+  } catch (err) {
+    console.error(`[L2-bulk] batchGet failed:`, (err as Error).message);
+    return result;
+  }
+  console.log(`[L2-bulk] batchGet completed in ${Date.now() - startTime}ms`);
+
+  // Pre-extract each gateway's rows once
+  const gatewayRows = GATEWAYS.map((gw, i) => ({
+    gw,
+    rows: (valueRanges[i]?.values ?? []) as string[][],
+  }));
+
+  for (const phone of validPhones) {
+    const matches: PaymentMatch[] = [];
+    for (const { gw, rows } of gatewayRows) {
+      try {
+        matches.push(...parseGatewayRows(gw, rows, phone));
+      } catch (err) {
+        console.warn(`⚠ [L2-bulk] "${gw.label}" parse failed for ${phone}:`, (err as Error).message);
+      }
+    }
+    result.set(phone, sortPaymentMatches(matches));
+  }
+
+  return result;
 }
 
 export { GATEWAYS, colLetterToIndex, colIndexToLetter };

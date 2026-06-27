@@ -1,4 +1,5 @@
 import { InvoiceData, L2StudentRecord, PaymentMatch } from './types';
+import { pickApplicationFeeIndex } from './l2-payment-gateway';
 
 const GST_RATE = 0.18; // 9% CGST + 9% SGST
 
@@ -24,9 +25,11 @@ export function buildL2InvoiceData(
     for (const p of allPayments) {
       totalAmount += parseFloat(p.amount.replace(/[^0-9.]/g, '')) || 0;
     }
-    // First payment (by date order, oldest first) is the application fee
-    if (allPayments.length > 0) {
-      appFeeAmount = parseFloat(allPayments[0].amount.replace(/[^0-9.]/g, '')) || 0;
+    // Application fee = the payment whose category starts with "002" (L2 Application);
+    // falls back to the first payment (oldest) when no 002 category is present.
+    const appFeeIdx = pickApplicationFeeIndex(allPayments);
+    if (appFeeIdx >= 0) {
+      appFeeAmount = parseFloat(allPayments[appFeeIdx].amount.replace(/[^0-9.]/g, '')) || 0;
     }
   } else {
     // Fallback: single payment
