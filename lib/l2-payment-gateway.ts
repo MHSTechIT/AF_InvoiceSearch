@@ -36,8 +36,9 @@ interface GatewayConfig {
   label: string;         // Display name
 }
 
-// L2 category prefixes to include (002=Application, 003=Diamond, 004=Gold, 005=EMI)
-const L2_CATEGORY_PREFIXES = ['002', '003', '004', '005'];
+// L2 category prefixes to include
+// 002=Application, 003=Diamond, 004=Gold, 005=EMI, 022=VSL L1+L2, 023=Direct Walkin L1+L2
+const L2_CATEGORY_PREFIXES = ['002', '003', '004', '005', '022', '023'];
 
 const GATEWAYS: GatewayConfig[] = [
   {
@@ -74,7 +75,7 @@ const GATEWAYS: GatewayConfig[] = [
   },
   {
     label: 'Bajaj',
-    tabName: 'Bajaj Sheet',
+    tabName: 'Bajaj_Sheet',
     phoneCols: [colLetterToIndex('BU'), colLetterToIndex('BW')], // BU=72, BW=74
     amountCol: colLetterToIndex('AN'),                            // AN=39
     dateCol: colLetterToIndex('AS'),                              // AS=44
@@ -119,6 +120,14 @@ const GATEWAYS: GatewayConfig[] = [
     amountCol: colLetterToIndex('B'),                             // B=1
     dateCol: colLetterToIndex('F'),                               // F=5 (Date of Transaction)
     categoryCol: colLetterToIndex('G'),                           // G=6
+  },
+  {
+    label: 'Cash',
+    tabName: 'Cash',
+    phoneCols: [colLetterToIndex('D'), colLetterToIndex('E')],   // D=3 (Phone No), E=4 (Alter No)
+    amountCol: colLetterToIndex('F'),                             // F=5 (Amount)
+    dateCol: colLetterToIndex('B'),                               // B=1 (Date)
+    categoryCol: colLetterToIndex('G'),                           // G=6 (Category)
   },
 ];
 
