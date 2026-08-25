@@ -44,8 +44,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Invoice date precedence: edit override → sheet's Invoice Date column (like the
+  // invoice number above) → today's date (fallback inside buildL2InvoiceData).
+  const invoiceDate = editInvoiceDate?.trim() || student.existingInvoiceDate?.trim() || undefined;
+
   // 3. Build invoice data (pass allPayments to split app fees + course fees)
-  const invoiceData = buildL2InvoiceData(student, selectedPayment, invoiceNumber, allPayments, editInvoiceDate);
+  const invoiceData = buildL2InvoiceData(student, selectedPayment, invoiceNumber, allPayments, invoiceDate);
 
   // 5. Generate PDF
   let pdfBuffer: Buffer;
